@@ -1,130 +1,166 @@
 # skills/file_manager.py
-
 import os
-import logging # Use standard logging
-from typing import Dict, Any, List # Changed Tuple to List for list_directory_contents
+import logging
+from typing import Any, Optional, List
 
-def list_directory_contents(context, path: str):
-    """Lists directory contents."""
-    if not os.path.exists(path):
-        context.speak(f"Sir, the directory '{path}' was not found.")
-        logging.warning(f"List directory: Path not found - {path}")
-        return
-    if not os.path.isdir(path):
-        context.speak(f"Sir, '{path}' is not a directory.")
-        logging.warning(f"List directory: Path is not a directory - {path}")
-        return
-    try:
-        files = os.listdir(path)
-        if files:
-            context.speak(f"Contents of directory '{path}':")
-            for item in files:
-                context.speak(f"- {item}")
-        else:
-            context.speak(f"The directory '{path}' is empty, sir.")
-        logging.info(f"Listed directory '{path}': {files}")
-    except PermissionError:
-        context.speak(f"I'm sorry, sir, I don't have permission to list the directory '{path}'.")
-        logging.error(f"List directory: Permission denied - {path}")
-    except Exception as e:
-        context.speak(f"An error occurred while trying to list the directory '{path}': {str(e)}")
-        logging.error(f"List directory: Error listing '{path}': {e}", exc_info=True)
+# --- Configuration ---
+SANDBOX_DIR_NAME = "praxis_sandbox"  # Name of the sandbox directory
 
-def read_file_content(context, path: str):
-    """Reads file content."""
-    if not os.path.exists(path):
-        context.speak(f"Sir, the file '{path}' could not be found.")
-        logging.warning(f"Read file: File not found - {path}")
-        return
-    if not os.path.isfile(path):
-        context.speak(f"Sir, '{path}' is not a file.")
-        logging.warning(f"Read file: Path is not a file - {path}")
-        return
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        # For very long files, consider speaking a summary or a portion.
-        # Here, we'll speak the beginning and log the full attempt.
-        context.speak(f"Content of file '{path}':")
-        if len(content) > 500: # Speak only a preview if too long
-            context.speak(content[:500] + "\n... (file content truncated for brevity)")
-        else:
-            context.speak(content)
-        logging.info(f"Read file '{path}'. Content length: {len(content)}")
-    except PermissionError:
-        context.speak(f"I'm afraid I don't have permission to read the file '{path}', sir.")
-        logging.error(f"Read file: Permission denied - {path}")
-    except Exception as e:
-        context.speak(f"An error occurred while reading the file '{path}': {str(e)}")
-        logging.error(f"Read file: Error reading '{path}': {e}", exc_info=True)
+# --- Helper Functions ---
 
-def write_content_to_file(context, path: str, content: str):
-    """Writes content to a file. Overwrites if exists, creates if not."""
-    try:
-        # Ensure parent directory exists
-        parent_dir = os.path.dirname(path)
-        if parent_dir: # Check if path includes a directory
-            os.makedirs(parent_dir, exist_ok=True)
-            logging.info(f"Ensured directory exists: {parent_dir} for writing to {path}")
+def _get_sandbox_abs_path() -> str:
+    """Returns the absolute path to the sandbox directory."""
+    # Assuming main.py is in the project root, this creates the sandbox
+    # in the project root.
+    return os.path.abspath(SANDBOX_DIR_NAME)
 
-        with open(path, 'w', encoding='utf-8') as f:
-            f.write(content)
-        context.speak(f"The content has been successfully written to '{path}', sir.")
-        logging.info(f"Wrote to file '{path}'. Content length: {len(content)}")
-    except PermissionError:
-        context.speak(f"I do not have permission to write to the file '{path}', sir.")
-        logging.error(f"Write file: Permission denied - {path}")
-    except Exception as e:
-        context.speak(f"An error occurred while writing to the file '{path}': {str(e)}")
-        logging.error(f"Write file: Error writing '{path}': {e}", exc_info=True)
+def _ensure_sandbox_dir_exists() -> None:
+    """Ensures the sandbox directory exists, creating it if necessary."""
+    sandbox_path = _get_sandbox_abs_path()
+    if not os.path.exists(sandbox_path):
+        try:
+            os.makedirs(sandbox_path)
+            logging.info(f"FileManager: Created sandbox directory at {sandbox_path}")
+        except Exception as e:
+            logging.error(f"FileManager: Failed to create sandbox directory at {sandbox_path}: {e}", exc_info=True)
+            # This is a critical failure for the skill's safety
+            raise RuntimeError(f"Could not create sandbox directory: {sandbox_path}") from e
 
-def _test_skill(context):
+def _get_sandboxed_path(context: Any, user_path: str, check_exists: bool = False, is_for_writing: bool = False) -> Optional[str]:
     """
-    Runs a quick self-test for the file_manager module.
-    It creates a temporary directory and file, writes to it, lists, reads, and cleans up.
+    Validates and converts a user-provided path to an absolute path within the sandbox.
+    Prevents directory traversal.
+    Args:
+        context: The skill context for speaking.
+        user_path: The path provided by the user/LLM, relative to the sandbox.
+        check_exists: If True, checks if the path exists.
+        is_for_writing: If True, the path is intended for a write operation.
+                        The existence check is slightly different (parent must exist).
+    Returns:
+        The absolute, validated path within the sandbox, or None if invalid/unsafe.
     """
-    logging.info("[file_manager_test] Running self-test for file_manager module...")
+    _ensure_sandbox_dir_exists() # Ensure sandbox base exists first
+    abs_sandbox_dir = _get_sandbox_abs_path()
+
+    # Normalize user_path: remove leading slashes and disallow absolute paths from user
+    if os.path.isabs(user_path):
+        context.speak("Error: Absolute paths are not allowed. Please provide a path relative to the sandbox.")
+        logging.warning("FileManager: Attempt to use absolute path denied.")
+        return None
+
+    # Clean the path to prevent issues with joining, e.g. " /file.txt"
+    cleaned_user_path = user_path.strip().lstrip('/\\')
+    if not cleaned_user_path: # Handle empty or root-like paths after stripping
+        context.speak("Error: A valid relative path within the sandbox is required.")
+        return None
+
+    prospective_path = os.path.join(abs_sandbox_dir, cleaned_user_path)
+    normalized_path = os.path.abspath(prospective_path)
+
+    # Security Check: Ensure the normalized path is within the sandbox
+    if os.path.commonpath([abs_sandbox_dir, normalized_path]) != abs_sandbox_dir:
+        context.speak("Error: Access denied. Path is outside the designated sandbox area.")
+        logging.warning(f"FileManager: Sandbox escape attempt. User path: '{user_path}', Resolved: '{normalized_path}'")
+        return None
+
+    if check_exists and not is_for_writing and not os.path.exists(normalized_path):
+        context.speak(f"Error: Path '{cleaned_user_path}' does not exist within the sandbox.")
+        return None
     
-    # It's good practice to use the tempfile module for truly temporary files/dirs
-    # but for a simple self-contained test, a subdirectory that's cleaned up is also okay.
-    # Let's create a test directory within the current working directory or a known temp spot.
-    # For simplicity, we'll use a relative path and ensure cleanup.
-    test_dir_name = "_fm_test_temp_dir"
-    test_file_name = "test_file.txt"
-    test_dir_path = os.path.join(os.getcwd(), test_dir_name) # Or use tempfile.mkdtemp()
-    test_file_path = os.path.join(test_dir_path, test_file_name)
-    test_content = "Hello from the file manager self-test!"
+    if is_for_writing:
+        parent_dir = os.path.dirname(normalized_path)
+        if not os.path.exists(parent_dir) or not os.path.isdir(parent_dir):
+            context.speak(f"Error: Cannot write to '{cleaned_user_path}'. Parent directory does not exist within the sandbox.")
+            return None
+        if os.path.exists(normalized_path) and os.path.isdir(normalized_path):
+            context.speak(f"Error: Cannot write file. Path '{cleaned_user_path}' is an existing directory.")
+            return None
+
+    return normalized_path
+
+# --- Skill Functions ---
+
+def list_directory_contents(context: Any, path: str = ".") -> None:
+    """Lists files and subdirectories in a specified path within the sandbox. Defaults to sandbox root."""
+    sandboxed_path = _get_sandboxed_path(context, path, check_exists=True)
+    if not sandboxed_path or not os.path.isdir(sandboxed_path):
+        if sandboxed_path: # Path was valid but not a directory
+             context.speak(f"Error: '{path}' is not a directory within the sandbox.")
+        return
 
     try:
-        # Ensure the test directory does not exist before starting
-        if os.path.exists(test_dir_path):
-            import shutil
-            shutil.rmtree(test_dir_path)
-            logging.info(f"[file_manager_test] Removed pre-existing test directory: {test_dir_path}")
-
-        os.makedirs(test_dir_path, exist_ok=True)
-        logging.info(f"[file_manager_test] Created temporary directory: {test_dir_path}")
-
-        # Test 1: Write content to file
-        logging.info(f"[file_manager_test] Testing write_content_to_file to {test_file_path}...")
-        write_content_to_file(context, test_file_path, test_content)
-
-        # Test 2: List directory contents
-        logging.info(f"[file_manager_test] Testing list_directory_contents for {test_dir_path}...")
-        list_directory_contents(context, test_dir_path)
-
-        # Test 3: Read file content
-        logging.info(f"[file_manager_test] Testing read_file_content for {test_file_path}...")
-        read_file_content(context, test_file_path)
-
-        logging.info("[file_manager_test] All file_manager self-tests passed successfully.")
-
+        contents = os.listdir(sandboxed_path)
+        if not contents:
+            context.speak(f"The directory '{path}' is empty.")
+        else:
+            context.speak(f"Contents of '{path}':\n" + "\n".join(contents))
     except Exception as e:
-        logging.error(f"[file_manager_test] Self-test FAILED: {e}", exc_info=True)
-        raise # Re-raise the exception to be caught by load_skills in main.py
-    finally:
-        # Cleanup: Remove the temporary directory and its contents
-        if os.path.exists(test_dir_path):
-            import shutil # Import here if not already imported, or at top of file
-            shutil.rmtree(test_dir_path)
-            logging.info(f"[file_manager_test] Cleaned up temporary directory: {test_dir_path}")
+        logging.error(f"FileManager: Error listing directory '{sandboxed_path}': {e}", exc_info=True)
+        context.speak(f"Sorry, I couldn't list the contents of '{path}'.")
+
+def read_file_content(context: Any, path: str) -> None:
+    """Reads the content of a specified file within the sandbox."""
+    sandboxed_path = _get_sandboxed_path(context, path, check_exists=True)
+    if not sandboxed_path or not os.path.isfile(sandboxed_path):
+        if sandboxed_path: # Path was valid but not a file
+            context.speak(f"Error: '{path}' is not a file or does not exist within the sandbox.")
+        return
+
+    try:
+        with open(sandboxed_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        context.speak(f"Content of '{path}':\n{content}")
+    except Exception as e:
+        logging.error(f"FileManager: Error reading file '{sandboxed_path}': {e}", exc_info=True)
+        context.speak(f"Sorry, I couldn't read the file '{path}'.")
+
+def write_content_to_file(context: Any, path: str, content: str) -> None:
+    """Writes content to a specified file within the sandbox. Overwrites if exists, creates if not."""
+    sandboxed_path = _get_sandboxed_path(context, path, is_for_writing=True)
+    if not sandboxed_path:
+        return
+
+    try:
+        with open(sandboxed_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        context.speak(f"Successfully wrote content to '{path}' in the sandbox.")
+    except Exception as e:
+        logging.error(f"FileManager: Error writing to file '{sandboxed_path}': {e}", exc_info=True)
+        context.speak(f"Sorry, I couldn't write to the file '{path}'.")
+
+def _test_skill(context: Any) -> None:
+    """Tests the file manager skill operations. Called by main.py during skill loading."""
+    logging.info("FileManager Skill Test: Starting...")
+    _ensure_sandbox_dir_exists() # Make sure sandbox is there for tests
+
+    test_dir = "test_subdir"
+    test_file = os.path.join(test_dir, "test_file.txt")
+    test_content = "Hello from Praxis sandbox!"
+
+    # Test writing and creating subdirectory (implicitly via _get_sandboxed_path)
+    os.makedirs(_get_sandboxed_path(context, test_dir), exist_ok=True) # Create subdir for test
+    write_content_to_file(context, test_file, test_content)
+    
+    # Test reading
+    read_file_content(context, test_file)
+
+    # Test listing
+    list_directory_contents(context, test_dir)
+    list_directory_contents(context, ".") # List sandbox root
+
+    # Test path traversal attempt (should be denied by _get_sandboxed_path)
+    logging.info("FileManager Skill Test: Testing path traversal denial...")
+    read_file_content(context, "../outside_file.txt") # This should be blocked and speak an error
+    
+    # Cleanup (optional, but good for repeatable tests)
+    sandboxed_test_file = _get_sandboxed_path(context, test_file)
+    sandboxed_test_dir = _get_sandboxed_path(context, test_dir)
+    if sandboxed_test_file and os.path.exists(sandboxed_test_file):
+        os.remove(sandboxed_test_file)
+    if sandboxed_test_dir and os.path.exists(sandboxed_test_dir):
+        os.rmdir(sandboxed_test_dir) # Only if empty
+
+    logging.info("FileManager Skill Test: Completed.")
+
+# Ensure sandbox exists when module is loaded, as a fallback.
+# _ensure_sandbox_dir_exists() # Not strictly needed here if all skills call it.

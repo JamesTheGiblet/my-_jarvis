@@ -47,7 +47,6 @@ def process_command_with_llm(
         If a task requires multiple steps, plan these steps. After a tool provides information,
         you can use that information from the conversation history to inform a subsequent tool call.
 
-        - calculate_multiply: Multiplies two numbers. Requires 'number1' (float) and 'number2' (float) arguments.
         {available_skills_prompt_str}
 
         If the request is conversational (e.g., a greeting), respond with skill 'speak'.

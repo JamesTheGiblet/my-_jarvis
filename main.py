@@ -198,7 +198,17 @@ def main() -> None:
     # Generate the dynamic skills description for the LLM
     available_skills_prompt_str = generate_skills_description_for_llm(SKILLS, speak)
 
-    startup_message = "Praxis (Phase 2 observe, evaluate and report complete). Systems nominal."
+    # Initialize calendar data by calling its specific initialization skill, if present
+    if "initialize_calendar_data" in SKILLS:
+        logging.info("Main: Attempting to initialize calendar data...")
+        try:
+            # Pass the skill_context, though initialize_calendar_data might not use all of it
+            SKILLS["initialize_calendar_data"](skill_context)
+            logging.info("Main: Calendar data initialization skill called.")
+        except Exception as e:
+            logging.error(f"Main: Error calling initialize_calendar_data: {e}", exc_info=True)
+
+    startup_message = "Praxis (Phase 2 observe and reposrt complete). Systems nominal."
     if not failed_skill_module_tests:
         startup_message += " All skill module self-tests passed successfully."
     else:
