@@ -14,6 +14,11 @@ def ask_and_store_fact(context: Any, question_to_ask: str, data_key: str) -> Non
         context.speak("I'm sorry, I'm unable to access my memory storage functions at the moment.")
         logging.error("UserMemorySkill: KnowledgeBase or store_user_data not available in context.")
         return
+    
+    if not hasattr(context, "current_user_name") or not context.current_user_name:
+        context.speak("I'm sorry, I don't know who I'm speaking with to store this information.")
+        logging.error("UserMemorySkill: current_user_name not available in context.")
+        return
 
     context.speak(question_to_ask)
     try:
@@ -37,7 +42,7 @@ def ask_and_store_fact(context: Any, question_to_ask: str, data_key: str) -> Non
             user_answer = input(f"Your answer for '{data_key}': ").strip()
             logging.info(f"UserMemorySkill: User answered '{user_answer}' for key '{data_key}'.")
 
-        if context.kb.store_user_data(data_key, user_answer):
+        if context.kb.store_user_data(context.current_user_name, data_key, user_answer):
             context.speak(f"Thank you. I've remembered that '{data_key}' is '{user_answer}'.")
         else:
             context.speak(f"I had trouble remembering that. Please try again or check the logs.")
@@ -57,8 +62,13 @@ def recall_fact(context: Any, data_key: str) -> None:
         context.speak("I'm sorry, I'm unable to access my memory retrieval functions at the moment.")
         logging.error("UserMemorySkill: KnowledgeBase or get_user_data not available in context.")
         return
+    
+    if not hasattr(context, "current_user_name") or not context.current_user_name:
+        context.speak("I'm sorry, I don't know who I'm speaking with to recall this information.")
+        logging.error("UserMemorySkill: current_user_name not available in context.")
+        return
 
-    stored_value = context.kb.get_user_data(data_key)
+    stored_value = context.kb.get_user_data(context.current_user_name, data_key)
     if stored_value is not None:
         context.speak(f"I recall that '{data_key}' is '{stored_value}'.")
     else:
@@ -67,12 +77,17 @@ def recall_fact(context: Any, data_key: str) -> None:
 def _test_skill(context: Any) -> None:
     """Tests the user memory skill operations."""
     logging.info("UserMemorySkill Test: Starting...")
+    # Ensure current_user_name is in context for testing
+    if not hasattr(context, "current_user_name") or not context.current_user_name:
+        logging.warning("UserMemorySkill Test: context.current_user_name not set, using a dummy test user.")
+        context.current_user_name = "test_user_for_skill" # Set a dummy for test if not present
+
     # Note: ask_and_store_fact is hard to test non-interactively without mocking input()
     # We'll test recall_fact by pre-populating.
     test_key = "test_user_memory_color"
     test_value = "chartreuse"
-    assert context.kb.store_user_data(test_key, test_value), "Failed to store test data for recall_fact test"
+    assert context.kb.store_user_data(context.current_user_name, test_key, test_value), "Failed to store test data for recall_fact test"
     recall_fact(context, test_key) # Should speak "chartreuse"
     assert f"'{test_key}' is '{test_value}'" in context.get_last_spoken_message_for_test(), "recall_fact did not speak the correct value"
-    assert context.kb.delete_user_data(test_key), "Failed to clean up test data"
+    assert context.kb.delete_user_data(context.current_user_name, test_key), "Failed to clean up test data"
     logging.info("UserMemorySkill Test: Completed successfully (ask_and_store_fact part is conceptual for non-interactive test).")

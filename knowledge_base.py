@@ -46,9 +46,11 @@ def init_db():
             # Table for general user-specific data (key-value store)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS user_data_store (
-                    data_key TEXT PRIMARY KEY,
+                    user_name TEXT NOT NULL,
+                    data_key TEXT NOT NULL,
                     data_value TEXT,
-                    last_updated_timestamp TEXT
+                    last_updated_timestamp TEXT,
+                    PRIMARY KEY (user_name, data_key)
                 )
             """)
             conn.commit()
@@ -251,60 +253,69 @@ def get_recent_skill_failures(skill_name: Optional[str] = None, limit: int = 5) 
         logging.error(f"KnowledgeBase: Error getting recent skill failures (skill: {skill_name}): {e}", exc_info=True)
     return results
 
-def store_user_data(data_key: str, data_value: str) -> bool:
+def store_user_data(user_name: str, data_key: str, data_value: str) -> bool:
     """
     Stores or updates a key-value pair in the user_data_store.
     Returns True on success, False on failure.
     """
+    if not user_name:
+        logging.error("KnowledgeBase: User name cannot be empty for store_user_data.")
+        return False
     timestamp_now_utc = datetime.now(timezone.utc).isoformat()
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO user_data_store (data_key, data_value, last_updated_timestamp)
-                VALUES (?, ?, ?)
-                ON CONFLICT(data_key) DO UPDATE SET
+                INSERT INTO user_data_store (user_name, data_key, data_value, last_updated_timestamp)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(user_name, data_key) DO UPDATE SET
                     data_value = excluded.data_value,
                     last_updated_timestamp = excluded.last_updated_timestamp
-            """, (data_key, data_value, timestamp_now_utc))
+            """, (user_name, data_key, data_value, timestamp_now_utc))
             conn.commit()
-            logging.info(f"KnowledgeBase: Stored/Updated user data for key '{data_key}'.")
+            logging.info(f"KnowledgeBase: Stored/Updated user data for user '{user_name}', key '{data_key}'.")
             return True
     except sqlite3.Error as e:
-        logging.error(f"KnowledgeBase: Error storing user data for key '{data_key}': {e}", exc_info=True)
+        logging.error(f"KnowledgeBase: Error storing user data for user '{user_name}', key '{data_key}': {e}", exc_info=True)
         return False
 
-def get_user_data(data_key: str) -> Optional[str]:
+def get_user_data(user_name: str, data_key: str) -> Optional[str]:
     """
     Retrieves a value from the user_data_store by its key.
     Returns the value as a string, or None if the key is not found or an error occurs.
     """
+    if not user_name:
+        logging.error("KnowledgeBase: User name cannot be empty for get_user_data.")
+        return None
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT data_value FROM user_data_store WHERE data_key = ?", (data_key,))
+            cursor.execute("SELECT data_value FROM user_data_store WHERE user_name = ? AND data_key = ?", (user_name, data_key))
             row = cursor.fetchone()
             if row:
                 return row['data_value']
             return None
     except sqlite3.Error as e:
-        logging.error(f"KnowledgeBase: Error retrieving user data for key '{data_key}': {e}", exc_info=True)
+        logging.error(f"KnowledgeBase: Error retrieving user data for user '{user_name}', key '{data_key}': {e}", exc_info=True)
         return None
 
-def delete_user_data(data_key: str) -> bool:
+def delete_user_data(user_name: str, data_key: str) -> bool:
     """
     Deletes a key-value pair from the user_data_store.
     Returns True on success or if key didn't exist, False on failure.
     """
+    if not user_name:
+        logging.error("KnowledgeBase: User name cannot be empty for delete_user_data.")
+        return False
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM user_data_store WHERE data_key = ?", (data_key,))
+            cursor.execute("DELETE FROM user_data_store WHERE user_name = ? AND data_key = ?", (user_name, data_key))
             conn.commit()
-            logging.info(f"KnowledgeBase: Attempted to delete user data for key '{data_key}'. Rows affected: {cursor.rowcount}")
+            logging.info(f"KnowledgeBase: Attempted to delete user data for user '{user_name}', key '{data_key}'. Rows affected: {cursor.rowcount}")
             return True
     except sqlite3.Error as e:
-        logging.error(f"KnowledgeBase: Error deleting user data for key '{data_key}': {e}", exc_info=True)
+        logging.error(f"KnowledgeBase: Error deleting user data for user '{user_name}', key '{data_key}': {e}", exc_info=True)
         return False
 
 # Initialize the DB when this module is loaded (e.g., at app startup if imported early)

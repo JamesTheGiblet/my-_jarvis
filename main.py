@@ -39,11 +39,12 @@ def speak(text_to_speak: str, text_to_log: Optional[str] = None) -> None:
 
 class SkillContext:
     """A class to hold shared resources that skills might need."""
-    def __init__(self, speak_func, chat_session, knowledge_base_module, skills_registry: Dict[str, Callable[..., Any]]):
+    def __init__(self, speak_func, chat_session, knowledge_base_module, skills_registry: Dict[str, Callable[..., Any]], current_user_name: str):
         self._raw_speak_func = speak_func # Store the original speak function from main
         self.chat_session = chat_session
         self.is_muted = False # Initialize is_muted state
         self.skills_registry = skills_registry # Access to all loaded skills
+        self.current_user_name = current_user_name # Store the active user's name
         self.spoken_messages_during_mute: list[str] = [] # To capture messages when muted
         self.kb = knowledge_base_module # Provide access to knowledge_base functions
 
@@ -203,10 +204,24 @@ def main() -> None:
     # Initialize the KnowledgeBase database
     knowledge_base.init_db()
 
+    # --- Initial User Identification ---
+    current_user_name = ""
+    while not current_user_name:
+        # Use global speak and input for this initial setup
+        speak("Welcome. I am Praxis. Who am I speaking to today?")
+        # We use a direct input here as it's part of the initial setup, not a skill interaction.
+        raw_name_input = input("Your Name: ").strip()
+        if raw_name_input:
+            current_user_name = raw_name_input
+            speak(f"A pleasure to meet you, {current_user_name}.")
+            logging.info(f"Main: User identified as '{current_user_name}'.")
+        else:
+            speak("I'm sorry, I didn't catch that. Could you please tell me your name?")
+
     # Initialize chat session and skill context BEFORE loading skills
     chat_session = model.start_chat(history=[])
     # Create a context object to pass to skills
-    skill_context = SkillContext(speak, chat_session, knowledge_base, SKILLS)
+    skill_context = SkillContext(speak, chat_session, knowledge_base, SKILLS, current_user_name)
 
     # Load skills dynamically at startup, passing the context for tests
     failed_skill_module_tests = load_skills(skill_context)
