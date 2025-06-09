@@ -10,6 +10,13 @@ import knowledge_base # Import the new module
 
 import pyttsx3
 # Import components from our new modules
+try:
+    import speech_recognition as sr
+    SPEECH_RECOGNITION_AVAILABLE = True
+except ImportError:
+    SPEECH_RECOGNITION_AVAILABLE = False
+    print("Praxis Warning: SpeechRecognition library not found. Voice input will be disabled. Falling back to text input.")
+    print("To enable voice input, please install SpeechRecognition and PyAudio: pip install SpeechRecognition PyAudio")
 from config import model
 from brain import process_command_with_llm, strip_wake_words
 
@@ -194,6 +201,40 @@ def fallback_handler(context: SkillContext, original_input: str) -> None:
 # --- Configuration for Inactivity ---
 INACTIVITY_THRESHOLD_SECONDS = 300 # 5 minutes, adjust as needed
 
+def listen_for_command(recognizer: 'sr.Recognizer', microphone: 'sr.Microphone') -> Optional[str]:
+    """
+    Listens for a command from the user via microphone and returns the transcribed text.
+    Returns None if speech is not understood or an error occurs.
+    """
+    if not SPEECH_RECOGNITION_AVAILABLE:
+        return None # Should not be called if library is unavailable, but as a safeguard.
+
+    with microphone as source:
+        speak("Listening, sir...")
+        print("Praxis: Listening...") # Console feedback
+        recognizer.adjust_for_ambient_noise(source, duration=0.5) # Adjust for ambient noise
+        try:
+            audio = recognizer.listen(source, timeout=5, phrase_time_limit=10) # Listen for up to 5s, phrase up to 10s
+        except sr.WaitTimeoutError:
+            speak("I didn't hear anything, sir.")
+            return None
+
+    try:
+        speak("Recognizing...")
+        print("Praxis: Recognizing...") # Console feedback
+        # Using Google Web Speech API for recognition by default
+        # This requires an internet connection.
+        # For offline, you'd configure Sphinx or another engine.
+        command_text = recognizer.recognize_google(audio)
+        print(f"You (voice): {command_text}") # Log what was heard
+        return command_text.strip()
+    except sr.UnknownValueError:
+        speak("I'm sorry, sir, I couldn't understand what you said.")
+    except sr.RequestError as e:
+        speak(f"My speech recognition service seems to be unavailable. Error: {e}")
+        logging.error(f"Speech recognition request error: {e}")
+    return None
+
 def main() -> None:
     """The main function to orchestrate the AI assistant."""
     if not model:
@@ -201,6 +242,14 @@ def main() -> None:
         print("Praxis: AI Brain (Gemini Model) failed to initialize. Please check your API key and configuration. Exiting.")
         logging.critical("AI Brain (Gemini Model) failed to initialize. Exiting.")
         return
+
+    # Initialize Speech Recognition components if available
+    recognizer = None
+    microphone = None
+    if SPEECH_RECOGNITION_AVAILABLE:
+        recognizer = sr.Recognizer()
+        microphone = sr.Microphone()
+        # You might want to adjust microphone settings, e.g., recognizer.energy_threshold
 
     # Initialize the KnowledgeBase database
     knowledge_base.init_db()
@@ -283,16 +332,23 @@ def main() -> None:
                     skill_context.speak(f"It's been a while, {skill_context.current_user_name}. Is there anything I can assist you with?")
                 last_interaction_time = current_time # Reset timer after proactive action
 
-            user_input = input("You: ").strip()
+            user_input = ""
+            if recognizer and microphone: # If speech recognition is set up
+                voice_input = listen_for_command(recognizer, microphone)
+                if voice_input:
+                    user_input = voice_input
+                else:
+                    # If voice input fails or nothing is heard, could optionally fallback or just loop
+                    continue # Loop back to listen again or wait for inactivity prompt
+            else: # Fallback to text input if speech recognition is not available
+                user_input = input("You (text): ").strip()
+            
             if not user_input:
-                # If user just hits Enter, we don't treat it as a full interaction for resetting the timer,
-                # but we also don't want to immediately re-prompt for inactivity if they are just pausing.
-                # For now, an empty input will not reset last_interaction_time, allowing the inactivity prompt
-                # to trigger if they remain idle after hitting Enter.
                 continue
 
             last_interaction_time = datetime.now() # Reset on any valid input from the user
-            logging.info(f"User: {user_input}")
+            logging.info(f"User (processed): {user_input}") # Log the input whether voice or text
+
             if user_input.lower() in ["exit", "quit", "goodbye"]:
                 speak("Goodbye, sir.")
                 break

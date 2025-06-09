@@ -7,15 +7,21 @@ from typing import Optional, Dict, Any, TYPE_CHECKING
 if TYPE_CHECKING: # To avoid circular import for type hinting
     from google.generativeai.generative_models import ChatSession # type: ignore
 
-def strip_wake_words(command: str) -> str:
-    """Removes wake words from the command."""
+def strip_wake_words(command: str) -> tuple[str, bool]:
+    """
+    Removes wake words from the command.
+    Returns the processed command and a boolean indicating if a wake word was stripped.
+    """
     wake_words = ["codex", "hey codex", "okay codex", "jarvis", "praxis", "hey praxis", "okay praxis"]
-    processed_command = command.lower()
+    command_lower = command.lower() # For case-insensitive matching of wake word
+    
     for wake in wake_words:
-        if processed_command.startswith(wake):
-            processed_command = processed_command[len(wake):].strip()
-            break  # Remove only the first occurrence of a wake word phrase
-    return processed_command.strip()
+        if command_lower.startswith(wake):
+            # Wake word found. Return the part of the *original* command after the wake word.
+            actual_command_part = command[len(wake):].strip()
+            return actual_command_part, True
+            
+    return command.strip(), False # No wake word found, return original command (stripped of outer whitespace)
 
 def extract_json(text: str) -> Optional[Dict[str, Any]]:
     """Extracts a JSON object from a string."""
