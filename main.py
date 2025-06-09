@@ -47,7 +47,7 @@ def speak(text_to_speak: str, text_to_log: Optional[str] = None) -> None:
 
 class SkillContext:
     """A class to hold shared resources that skills might need."""
-    def __init__(self, speak_func, chat_session, knowledge_base_module, skills_registry: Dict[str, Callable[..., Any]], current_user_name: str):
+    def __init__(self, speak_func, chat_session, knowledge_base_module, skills_registry: Dict[str, Callable[..., Any]], current_user_name: str, input_mode_config_ref: Dict[str, str], speech_recognition_available_flag: bool):
         self._raw_speak_func = speak_func # Store the original speak function from main
         self.chat_session = chat_session
         self.is_muted = False # Initialize is_muted state
@@ -55,6 +55,8 @@ class SkillContext:
         self.current_user_name = current_user_name # Store the active user's name
         self.spoken_messages_during_mute: list[str] = [] # To capture messages when muted
         self.kb = knowledge_base_module # Provide access to knowledge_base functions
+        self.input_mode_config = input_mode_config_ref # Reference to main's input mode config
+        self.speech_recognition_available = speech_recognition_available_flag # Flag for SR availability
 
     def speak(self, text_to_speak: str, text_to_log: Optional[str] = None) -> None:
         """Handles speaking output, capturing messages if muted."""
@@ -254,6 +256,11 @@ def main() -> None:
     # Initialize the KnowledgeBase database
     knowledge_base.init_db()
 
+    # --- Input Mode Configuration ---
+    input_mode_config = {'mode': 'text'} # Default to text
+    if SPEECH_RECOGNITION_AVAILABLE:
+        input_mode_config['mode'] = 'voice' # Switch to voice if available at start
+
     # --- Initial User Identification ---
     current_user_name = ""
     while not current_user_name:
@@ -280,7 +287,7 @@ def main() -> None:
     # Initialize chat session and skill context BEFORE loading skills
     chat_session = model.start_chat(history=[])
     # Create a context object to pass to skills
-    skill_context = SkillContext(speak, chat_session, knowledge_base, SKILLS, current_user_name)
+    skill_context = SkillContext(speak, chat_session, knowledge_base, SKILLS, current_user_name, input_mode_config, SPEECH_RECOGNITION_AVAILABLE)
 
     # Load skills dynamically at startup, passing the context for tests
     failed_skill_module_tests = load_skills(skill_context)
@@ -333,16 +340,20 @@ def main() -> None:
                 last_interaction_time = current_time # Reset timer after proactive action
 
             user_input = ""
-            if recognizer and microphone: # If speech recognition is set up
+            if input_mode_config['mode'] == 'voice' and recognizer and microphone:
                 voice_input = listen_for_command(recognizer, microphone)
                 if voice_input:
                     user_input = voice_input
                 else:
                     # If voice input fails or nothing is heard, could optionally fallback or just loop
                     continue # Loop back to listen again or wait for inactivity prompt
-            else: # Fallback to text input if speech recognition is not available
-                user_input = input("You (text): ").strip()
-            
+            else: # Fallback to text input if mode is 'text' or SR is not available/setup for voice mode
+                if input_mode_config['mode'] == 'voice' and not (recognizer and microphone):
+                    # Safeguard: Inform user if voice mode is set but SR components aren't ready
+                    speak("Voice input is configured, but components are not ready. Please use text for now.")
+                    # Temporarily force text for this turn, though the mode itself isn't changed by this line
+                user_input = input(f"You ({input_mode_config['mode']}): ").strip()
+           
             if not user_input:
                 continue
 
@@ -353,7 +364,7 @@ def main() -> None:
                 speak("Goodbye, sir.")
                 break
 
-            clean_input = strip_wake_words(user_input)
+            clean_input, _ = strip_wake_words(user_input) # Adjusted to match strip_wake_words return
             
             # 1. THINK: Get the desired action from the LLM brain
             parsed_command: Optional[Dict[str, Any]] = process_command_with_llm(
