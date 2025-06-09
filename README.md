@@ -32,29 +32,43 @@ Iterative Evolution | Changes are not abrupt but grow from prior structures, muc
 
 🚀 Current Capabilities & Foundational Features
 
-Praxis is continuously developing. Here are some of the key capabilities built upon its current Gemini API and skill-based architecture:
+Praxis is continuously developing, integrating features that push towards its goal of self-evolution. Here are some key capabilities:
 
 *   **Modular Skill Architecture:**
     *   Dynamically loads and integrates new capabilities (skills) from Python files at runtime (see `skills/How to create a skill.txt`).
     *   Skills are self-contained, promoting clean separation of concerns and easy extension.
     *   This forms the bedrock for future self-adaptive module generation.
+    *   **Dynamic Skill Awareness:** Praxis dynamically generates descriptions of its available skills for the LLM, ensuring the AI core always knows its current toolset without manual prompt updates.
 
 *   **LLM-Powered Orchestration (Gemini API):**
     *   Utilizes Google's Gemini API for advanced natural language understanding, command interpretation, and conversational abilities.
     *   Intelligently selects appropriate skills and extracts necessary arguments to fulfill user requests, as managed in `brain.py`.
     *   Maintains conversation history (`chat_session`) for contextual understanding across multiple turns.
+    *   Supports multi-step reasoning for complex task execution.
 
 *   **Context-Aware Skill Execution:**
     *   Skills operate with a shared `SkillContext`, providing access to system functions (like `speak()`) and the ongoing conversation history.
     *   This lays the groundwork for more sophisticated contextual adaptations as Praxis evolves.
 
-*   **Extensible Knowledge & Interaction:**
-    *   The `chat_session` with the Gemini API provides immediate conversational memory.
-    *   The system is designed to allow for the future integration of more persistent knowledge bases and advanced learning mechanisms.
+*   **KnowledgeBase & Performance Monitoring:**
+    *   A persistent SQLite database (`praxis_knowledge_base.db`) tracks:
+        *   Skill usage metrics (frequency, success/failure rates).
+        *   Detailed skill failure logs (error messages, arguments used).
+        *   User feedback on skill performance.
+    *   **Analytics Skill:** Allows querying system performance (e.g., most used skills, highest failure rates).
+    *   This data forms the basis for self-assessment and guided evolution.
+
+*   **User Personalization & Interaction:**
+    *   Identifies the user at startup and maintains this context.
+    *   **User Profile Management:** Stores user-specific information (e.g., interests, preferences) in the KnowledgeBase (`user_profile_items` table) via dedicated skills.
+    *   **Proactive Engagement:** Can suggest topics for conversation or exploration based on the user's stored profile and an inactivity timer.
+    *   **Persistent Calendar:** Manages calendar events with data persistence across sessions.
+    *   **Sandboxed File Management:** Provides file system interaction capabilities within a secure, designated sandbox directory.
 
 *   **Developer-Friendly Skill Creation:**
     *   A clear process for adding new foundational skills, enabling rapid expansion of capabilities.
     *   Includes a self-test mechanism (`_test_skill`) within skill modules to help ensure integrity and successful integration.
+    *   **Experimental Skill Refinement:** A foundational `skill_refinement_agent` can identify failing skills, retrieve their source code, and use the LLM to propose fixes, saving them for developer review.
 
 🧩 Current Architecture Overview
 
@@ -65,25 +79,30 @@ Praxis's current architecture is designed for clarity and extensibility:
     *   `brain.py`: Interfaces with the Gemini API (`process_command_with_llm`) to understand user intent and determine the appropriate skill and arguments.
     *   `config.py`: Manages API keys and essential configurations for the Gemini API.
 
-*   **Dynamic Skill Modules (`skills/` directory):**
+*   **Dynamic Skill Modules (`skills/` directory & Core Components):**
     *   Individual `.py` files in this directory define one or more skills (Python functions).
     *   Skills are automatically discovered and made available to the LLM-driven `brain.py`.
     *   This modularity is inspired by biological principles, where each skill acts as a specialized functional unit.
+    *   Includes skills for user memory, proactive engagement, analytics, feedback, skill refinement, API interactions, calendar, file management, and more.
 
 *   **Interaction & Context (`SkillContext`):**
-    *   Provides a standardized interface for skills to interact with the core system (e.g., for speech output via `speak()`) and access shared information like the conversation history.
+    *   Provides a standardized interface for skills to interact with the core system (e.g., for speech output via `speak()`) and access shared information like the conversation history, KnowledgeBase, skill registry, and current user identity.
+
+*   **Persistent Knowledge (`knowledge_base.py`):**
+    *   Manages the SQLite database for storing operational data, performance metrics, user feedback, and user profiles.
 
 🧪 Path to Evolution (Future Aspirations)
 
-While the current system relies on human developers to add skills and refine prompts, the Praxis vision includes a methodology for greater autonomy:
+Praxis is actively progressing through a phased development plan. The current focus is on **Phase 3: Guided Evolution & Skill Refinement**, building upon the self-assessment capabilities of Phase 2.
 
 *   **Iterative Refinement:** The system will continue to evolve through the addition of new foundational skills and improvements to the LLM interaction strategies.
-*   **Performance Monitoring & Feedback Loops (Future):**
-    *   Mechanisms to track skill success rates, identify inefficiencies, and gather user feedback will be crucial for guiding autonomous improvements.
-*   **Experimental Adaptation & Generation (Future):**
-    *   The long-term goal is for Praxis to experiment with variations of existing skills or even attempt to generate new, simple capabilities based on observed needs or patterns of failure.
-    *   This could involve techniques like LLM-driven code generation, guided by performance metrics.
-*   **Pattern Recognition & Learning (Future):**
-    *   Praxis will aim to learn from the history of interactions—successful skill executions, failures, and user corrections—to enhance its decision-making, skill selection, and potentially its own structure.
-*   **Self-Assessment & Optimization (Future):**
-    *   The system will eventually incorporate self-assessment routines to identify areas for optimization, both at the micro (individual skill) and macro (overall workflow) levels.
+*   **Guided Evolution (Phase 3 Focus):**
+    *   **Skill Refinement:** Enhancing the `skill_refinement_agent` to more robustly analyze failing skills, leverage LLM for bug fixes/improvements, and potentially integrate sandboxed testing for proposed changes.
+    *   **Prompt-Tuning:** Developing skills that allow Praxis to suggest improvements to its own core prompts based on observed interaction patterns and skill selection accuracy.
+    *   **Advanced User Profiling & Proactivity:** Deepening the user profile by inferring preferences and knowledge, leading to more insightful proactive engagement.
+*   **Adaptive Interfaces & Embodiment (Phases 4 & 8):**
+    *   Building external APIs and GUIs for broader interaction and monitoring.
+    *   Exploring integration with physical or complex simulated environments, including voice I/O, to test adaptive capabilities in real-world scenarios.
+*   **Advanced Cognitive Development & Autonomy (Phases 5, 7, 9, 10):**
+    *   Implementing more sophisticated memory and learning mechanisms, intrinsic motivation, creativity, open-ended goal setting, and higher-order cognitive functions.
+    *   The ultimate vision involves Praxis achieving significant autonomy in its learning, adaptation, and even in contributing to new discoveries or designs.

@@ -160,7 +160,8 @@ def _test_skill(context: Any) -> None:
 
     add_calendar_event(context, test_event_name, test_date, "Test details")
     assert any(e['name'] == test_event_name for e in CALENDAR_EVENTS.get(test_date, [])), "Test event not added"
-    list_calendar_events(context, test_date) # For visual confirmation via muted log
+    # list_calendar_events(context, test_date) # This call is for visual confirmation via muted log, not strictly needed for assertion
+    assert f"Event '{test_event_name}' added for {test_date}." in context.get_last_spoken_message_for_test()
     remove_calendar_event(context, test_event_name, test_date)
     assert not any(e['name'] == test_event_name for e in CALENDAR_EVENTS.get(test_date, [])), "Test event not removed"
     logging.info("Calendar Skill Test: Completed successfully.")

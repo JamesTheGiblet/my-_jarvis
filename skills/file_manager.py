@@ -138,10 +138,10 @@ def _test_skill(context: Any) -> None:
     _ensure_sandbox_dir_exists() # Make sure sandbox is there for tests
     sandbox_root = _get_sandbox_abs_path()
 
-    test_dir = "test_subdir"
-    test_file_relative = os.path.join(test_dir, "test_file.txt")
+    test_dir_name_for_test = "test_subdir_fm_skill" # More unique name
+    test_file_relative = os.path.join(test_dir_name_for_test, "test_file.txt")
     test_content = "Hello from Praxis sandbox!"
-    abs_test_dir = os.path.join(sandbox_root, test_dir)
+    abs_test_dir = os.path.join(sandbox_root, test_dir_name_for_test)
     abs_test_file = os.path.join(sandbox_root, test_file_relative)
 
     # Cleanup before test, in case of previous failed run
@@ -170,8 +170,8 @@ def _test_skill(context: Any) -> None:
     context.clear_spoken_messages_for_test()
 
     # Test listing
-    list_directory_contents(context, test_dir)
-    assert f"Contents of '{test_dir}':\n{os.path.basename(test_file_relative)}" in context.get_last_spoken_message_for_test()
+    list_directory_contents(context, test_dir_name_for_test)
+    assert f"Contents of '{test_dir_name_for_test}':\n{os.path.basename(test_file_relative)}" in context.get_last_spoken_message_for_test()
     list_directory_contents(context, ".") # List sandbox root
     context.clear_spoken_messages_for_test()
 

@@ -110,5 +110,10 @@ def _test_skill(context: Any) -> None:
 
     list_user_profile_category(context, test_cat)
     assert f"- {test_key}: {test_val}" in context.get_last_spoken_message_for_test(), "Test: List category message mismatch."
+    context.clear_spoken_messages_for_test()
+
+    # Cleanup test data
+    assert context.kb.delete_user_profile_item(context.current_user_name, test_cat, test_key), f"Test: Failed to delete profile item {test_cat}/{test_key}"
+    logging.info(f"UserMemorySkill Test: Cleaned up test item {test_cat}/{test_key}")
 
     logging.info("UserMemorySkill Test: Completed successfully.")

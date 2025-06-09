@@ -395,7 +395,28 @@ def get_user_profile_items_by_category(user_name: str, item_category: str) -> li
         logging.error(f"KnowledgeBase: Error retrieving profile items for user '{user_name}', category '{item_category}': {e}", exc_info=True)
     return results
 
-# Consider adding delete_user_profile_item if needed for management.
+def delete_user_profile_item(user_name: str, item_category: str, item_key: str) -> bool:
+    """
+    Deletes a specific item from the user_profile_items table.
+    Returns True on success or if the item didn't exist, False on failure.
+    """
+    if not all([user_name, item_category, item_key]):
+        logging.error("KnowledgeBase: user_name, item_category, and item_key cannot be empty for delete_user_profile_item.")
+        return False
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                DELETE FROM user_profile_items 
+                WHERE user_name = ? AND item_category = ? AND item_key = ?
+            """, (user_name, item_category, item_key))
+            conn.commit()
+            logging.info(f"KnowledgeBase: Attempted to delete profile item for user '{user_name}', category '{item_category}', key '{item_key}'. Rows affected: {cursor.rowcount}")
+            return True
+    except sqlite3.Error as e:
+        logging.error(f"KnowledgeBase: Error deleting profile item for user '{user_name}', category '{item_category}', key '{item_key}': {e}", exc_info=True)
+        return False
+
 
 # Initialize the DB when this module is loaded (e.g., at app startup if imported early)
 # Alternatively, call init_db() explicitly from main.py

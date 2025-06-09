@@ -214,7 +214,16 @@ def main() -> None:
         raw_name_input = input("Your Name: ").strip()
         if raw_name_input:
             current_user_name = raw_name_input
-            speak(f"A pleasure to meet you, {current_user_name}.")
+            # Check if user has existing profile data to tailor the greeting
+            # We can check any category, e.g., 'interest', or just see if any row exists for the user.
+            # For simplicity, let's try to get any profile item.
+            # A more robust check might be a dedicated KB function like `user_exists_in_profile(user_name)`.
+            # For now, checking for any 'interest' is a proxy.
+            existing_profile_items = knowledge_base.get_user_profile_items_by_category(current_user_name, "interest") # or any other common category
+            if existing_profile_items:
+                speak(f"Welcome back, {current_user_name}! How have you been? Up to anything exciting lately?")
+            else:
+                speak(f"A pleasure to meet you, {current_user_name}. I look forward to assisting you.")
             logging.info(f"Main: User identified as '{current_user_name}'.")
         else:
             speak("I'm sorry, I didn't catch that. Could you please tell me your name?")
@@ -254,17 +263,25 @@ def main() -> None:
         try:
             # Check for inactivity BEFORE asking for input
             current_time = datetime.now()
-            # In main.py, inside the while True loop, before input()
             if (current_time - last_interaction_time).total_seconds() > INACTIVITY_THRESHOLD_SECONDS:
-                if "suggest_engagement_topic" in SKILLS:
-                # Randomly decide to offer assistance or a topic
-                    if random.choice([True, False]):
+                # Decide what to do during inactivity
+                action_choice = random.choices(
+                    ["offer_assistance", "suggest_topic", "attempt_learning"],
+                    weights=[0.55, 0.35, 0.10], # Adjust weights: e.g., 55% assist, 35% topic, 10% learn
+                    k=1
+                )[0]
+
+                if action_choice == "attempt_learning" and "attempt_autonomous_skill_learning" in SKILLS:
+                    SKILLS["attempt_autonomous_skill_learning"](skill_context)
+                elif action_choice == "suggest_topic" and "suggest_engagement_topic" in SKILLS:
+                    # Ensure this skill exists before calling
+                    if "suggest_engagement_topic" in SKILLS: # Double check, though outer if should catch
                         SKILLS["suggest_engagement_topic"](skill_context)
                     else:
                         skill_context.speak(f"It's been a while, {skill_context.current_user_name}. Is there anything I can assist you with?")
                 else:
                     skill_context.speak(f"It's been a while, {skill_context.current_user_name}. Is there anything I can assist you with?")
-                last_interaction_time = current_time 
+                last_interaction_time = current_time # Reset timer after proactive action
 
             user_input = input("You: ").strip()
             if not user_input:
