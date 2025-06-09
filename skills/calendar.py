@@ -156,3 +156,43 @@ def _load_calendar_from_file(filepath="calendar_data.json"):
 # However, skills are typically stateless and main.py handles initialization.
 # For now, it remains an in-memory dictionary.
 # _load_calendar_from_file() # Example: uncomment to load on module import
+
+def _test_skill(context):
+    """
+    Runs a quick self-test for the calendar module.
+    It adds an event, lists it, removes it, and clears the calendar.
+    """
+    logging.info("[calendar_test] Running self-test for calendar module...")
+    try:
+        test_date = _get_current_date() # Use today's date for the test
+        test_event_name = "Automated Test Event"
+        test_event_details = "This is a temporary event for testing purposes."
+
+        # Ensure calendar is clean before starting specific tests
+        logging.info(f"[calendar_test] Clearing calendar before test operations.")
+        clear_all_calendar_events(context)
+
+        # Test 1: Add an event
+        logging.info(f"[calendar_test] Attempting to add event: '{test_event_name}' on {test_date}")
+        add_calendar_event(context, test_event_name, test_date, test_event_details)
+        logging.info(f"[calendar_test] add_calendar_event called.")
+
+        # Test 2: List events for the date (should include the test event)
+        logging.info(f"[calendar_test] Attempting to list events for {test_date}")
+        list_calendar_events(context, test_date)
+        logging.info(f"[calendar_test] list_calendar_events called.")
+
+        # Test 3: Remove the event
+        logging.info(f"[calendar_test] Attempting to remove event: '{test_event_name}' from {test_date}")
+        remove_calendar_event(context, test_event_name, test_date)
+        logging.info(f"[calendar_test] remove_calendar_event called.")
+
+        # Test 4: Clear all events (to ensure cleanup)
+        logging.info(f"[calendar_test] Attempting to clear all calendar events.")
+        clear_all_calendar_events(context)
+        logging.info(f"[calendar_test] clear_all_calendar_events called.")
+
+        logging.info("[calendar_test] All calendar self-tests passed successfully.")
+    except Exception as e:
+        logging.error(f"[calendar_test] Self-test FAILED: {e}", exc_info=True)
+        raise # Re-raise the exception to be caught by load_skills in main.py

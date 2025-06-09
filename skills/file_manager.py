@@ -77,3 +77,54 @@ def write_content_to_file(context, path: str, content: str):
     except Exception as e:
         context.speak(f"An error occurred while writing to the file '{path}': {str(e)}")
         logging.error(f"Write file: Error writing '{path}': {e}", exc_info=True)
+
+def _test_skill(context):
+    """
+    Runs a quick self-test for the file_manager module.
+    It creates a temporary directory and file, writes to it, lists, reads, and cleans up.
+    """
+    logging.info("[file_manager_test] Running self-test for file_manager module...")
+    
+    # It's good practice to use the tempfile module for truly temporary files/dirs
+    # but for a simple self-contained test, a subdirectory that's cleaned up is also okay.
+    # Let's create a test directory within the current working directory or a known temp spot.
+    # For simplicity, we'll use a relative path and ensure cleanup.
+    test_dir_name = "_fm_test_temp_dir"
+    test_file_name = "test_file.txt"
+    test_dir_path = os.path.join(os.getcwd(), test_dir_name) # Or use tempfile.mkdtemp()
+    test_file_path = os.path.join(test_dir_path, test_file_name)
+    test_content = "Hello from the file manager self-test!"
+
+    try:
+        # Ensure the test directory does not exist before starting
+        if os.path.exists(test_dir_path):
+            import shutil
+            shutil.rmtree(test_dir_path)
+            logging.info(f"[file_manager_test] Removed pre-existing test directory: {test_dir_path}")
+
+        os.makedirs(test_dir_path, exist_ok=True)
+        logging.info(f"[file_manager_test] Created temporary directory: {test_dir_path}")
+
+        # Test 1: Write content to file
+        logging.info(f"[file_manager_test] Testing write_content_to_file to {test_file_path}...")
+        write_content_to_file(context, test_file_path, test_content)
+
+        # Test 2: List directory contents
+        logging.info(f"[file_manager_test] Testing list_directory_contents for {test_dir_path}...")
+        list_directory_contents(context, test_dir_path)
+
+        # Test 3: Read file content
+        logging.info(f"[file_manager_test] Testing read_file_content for {test_file_path}...")
+        read_file_content(context, test_file_path)
+
+        logging.info("[file_manager_test] All file_manager self-tests passed successfully.")
+
+    except Exception as e:
+        logging.error(f"[file_manager_test] Self-test FAILED: {e}", exc_info=True)
+        raise # Re-raise the exception to be caught by load_skills in main.py
+    finally:
+        # Cleanup: Remove the temporary directory and its contents
+        if os.path.exists(test_dir_path):
+            import shutil # Import here if not already imported, or at top of file
+            shutil.rmtree(test_dir_path)
+            logging.info(f"[file_manager_test] Cleaned up temporary directory: {test_dir_path}")

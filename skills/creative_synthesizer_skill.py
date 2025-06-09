@@ -75,3 +75,38 @@ def get_creative_skill_current_date(context):
 # The __main__ block from the original file has been removed as it was
 # for testing the class-based structure and is not directly applicable
 # to testing these individual functions without mocking the 'context' object.
+
+def _test_skill(context):
+    """
+    Runs a quick self-test for the creative_synthesizer_skill module.
+    """
+    logging.info("[creative_synthesizer_test] Running self-test for creative_synthesizer_skill module...")
+    try:
+        test_text_short = "Hello world! This is a test."
+        test_text_long_for_summary = "The quick brown fox jumps over the lazy dog. This sentence contains all letters of the alphabet. It is often used for practice typing, and for testing fonts and displays."
+
+        # Test 1: echo_text
+        logging.info(f"[creative_synthesizer_test] Attempting to call echo_text with: '{test_text_short}'")
+        echo_text(context, test_text_short)
+        logging.info(f"[creative_synthesizer_test] echo_text called.")
+
+        # Test 2: get_text_stats
+        logging.info(f"[creative_synthesizer_test] Attempting to call get_text_stats with: '{test_text_short}'")
+        get_text_stats(context, test_text_short)
+        logging.info(f"[creative_synthesizer_test] get_text_stats called.")
+
+        # Test 3: get_creative_skill_current_date
+        logging.info(f"[creative_synthesizer_test] Attempting to call get_creative_skill_current_date.")
+        get_creative_skill_current_date(context)
+        logging.info(f"[creative_synthesizer_test] get_creative_skill_current_date called.")
+
+        # Test 4: summarize_creatively (LLM call)
+        logging.info(f"[creative_synthesizer_test] Attempting to call summarize_creatively with: '{test_text_long_for_summary[:30]}...'")
+        summarize_creatively(context, test_text_long_for_summary)
+        # The actual summary content won't be asserted here, but the flow and LLM call attempt will be logged.
+        logging.info(f"[creative_synthesizer_test] summarize_creatively called (check logs for LLM interaction details).")
+
+        logging.info("[creative_synthesizer_test] All creative_synthesizer_skill self-tests passed successfully.")
+    except Exception as e:
+        logging.error(f"[creative_synthesizer_test] Self-test FAILED: {e}", exc_info=True)
+        raise # Re-raise the exception to be caught by load_skills in main.py

@@ -212,3 +212,60 @@ def analyze_correlation(context, series_data: Dict[str, List[Union[int, float]]]
     except Exception as e:
         context.speak(f"An unexpected error occurred during correlation analysis, sir: {e}")
         logging.error(f"Unexpected error during correlation: {e}", exc_info=True)
+
+def _test_skill(context):
+    """
+    Runs a quick self-test for the data_analysis_skill module.
+    """
+    logging.info("[data_analysis_test] Running self-test for data_analysis_skill module...")
+    try:
+        # Sample data for testing
+        sample_log_entries = [
+            {"level": "INFO", "message": "User logged in"},
+            {"level": "WARNING", "message": "Low disk space"},
+            {"level": "INFO", "message": "Process completed"}
+        ]
+        sample_data_items = [1, "hello", [1, 2], {"key": "value"}, 3.14]
+        sample_numbers = [10, 15, 20, 25, 30, 20]
+        sample_texts = ["The quick brown fox.", "Jumps over the lazy dog.", "Python is fun."]
+        sample_keywords = ["fox", "python"]
+        sample_regex = r"\b\w{3}\b" # Matches 3-letter words
+        sample_series_data = {
+            "series_A": [1, 2, 3, 4, 5],
+            "series_B": [2, 4, 6, 8, 10],
+            "series_C": [5, 4, 3, 2, 1]
+        }
+
+        # Test 1: analyze_log_summary
+        logging.info("[data_analysis_test] Testing analyze_log_summary...")
+        analyze_log_summary(context, sample_log_entries)
+
+        # Test 2: analyze_data_complexity
+        logging.info("[data_analysis_test] Testing analyze_data_complexity...")
+        analyze_data_complexity(context, sample_data_items)
+
+        # Test 3: analyze_basic_statistics
+        logging.info("[data_analysis_test] Testing analyze_basic_statistics...")
+        analyze_basic_statistics(context, sample_numbers)
+
+        # Test 4: analyze_advanced_statistics
+        logging.info("[data_analysis_test] Testing analyze_advanced_statistics...")
+        analyze_advanced_statistics(context, sample_numbers)
+
+        # Test 5: search_keywords_in_text
+        logging.info("[data_analysis_test] Testing search_keywords_in_text...")
+        search_keywords_in_text(context, sample_texts, sample_keywords)
+
+        # Test 6: match_regex_in_text
+        logging.info("[data_analysis_test] Testing match_regex_in_text...")
+        match_regex_in_text(context, sample_texts, sample_regex)
+
+        # Test 7: analyze_correlation
+        logging.info("[data_analysis_test] Testing analyze_correlation...")
+        analyze_correlation(context, sample_series_data)
+
+        logging.info("[data_analysis_test] All data_analysis_skill self-tests passed successfully.")
+
+    except Exception as e:
+        logging.error(f"[data_analysis_test] Self-test FAILED: {e}", exc_info=True)
+        raise # Re-raise the exception to be caught by load_skills in main.py

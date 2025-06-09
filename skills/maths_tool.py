@@ -141,3 +141,51 @@ def calculate_cosine(context, angle_degrees: Union[int, float]):
     except Exception as e:
         context.speak(f"An error occurred during cosine calculation: {str(e)}")
         logging.error(f"Error in calculate_cosine: {e}", exc_info=True)
+
+def _test_skill(context):
+    """
+    Runs a quick self-test for the maths_tool module.
+    It calls each calculation function with sample inputs.
+    """
+    logging.info("[maths_tool_test] Running self-test for maths_tool module...")
+    try:
+        # Test 1: calculate_add
+        logging.info("[maths_tool_test] Testing calculate_add...")
+        calculate_add(context, 5, 3)
+
+        # Test 2: calculate_subtract
+        logging.info("[maths_tool_test] Testing calculate_subtract...")
+        calculate_subtract(context, 10, 4)
+
+        # Test 3: calculate_multiply
+        logging.info("[maths_tool_test] Testing calculate_multiply...")
+        calculate_multiply(context, 6, 7)
+
+        # Test 4: calculate_divide
+        logging.info("[maths_tool_test] Testing calculate_divide...")
+        calculate_divide(context, 20, 5)
+        logging.info("[maths_tool_test] Testing calculate_divide (with potential for handled error)...")
+        calculate_divide(context, 10, 0) # Test division by zero handling
+
+        # Test 5: calculate_power
+        logging.info("[maths_tool_test] Testing calculate_power...")
+        calculate_power(context, 2, 3)
+
+        # Test 6: calculate_log
+        logging.info("[maths_tool_test] Testing calculate_log (natural)...")
+        calculate_log(context, 10)
+        logging.info("[maths_tool_test] Testing calculate_log (base 10)...")
+        calculate_log(context, 100, 10)
+
+        # Test 7: calculate_sine
+        logging.info("[maths_tool_test] Testing calculate_sine...")
+        calculate_sine(context, 90)
+
+        # Test 8: calculate_cosine
+        logging.info("[maths_tool_test] Testing calculate_cosine...")
+        calculate_cosine(context, 0)
+
+        logging.info("[maths_tool_test] All maths_tool self-tests passed successfully.")
+    except Exception as e:
+        logging.error(f"[maths_tool_test] Self-test FAILED: {e}", exc_info=True)
+        raise # Re-raise the exception to be caught by load_skills in main.py

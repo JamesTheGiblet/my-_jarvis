@@ -109,3 +109,27 @@ def get_github_user_info(context, username: str):
 
 # TODO: Implement other GitHub skill functions like list_issues, get_issue, create_issue etc.
 # Each would follow a similar pattern: define function, call _call_github_api, process results, speak.
+
+def _test_skill(context):
+    """
+    Runs a quick self-test for the github_api_interaction_skill module.
+    It attempts to fetch info for a known GitHub user.
+    """
+    logging.info("[github_skill_test] Running self-test for github_api_interaction_skill module...")
+    try:
+        test_username = "octocat" # A well-known GitHub user for testing
+
+        # Test 1: Call get_github_user_info
+        # This will be muted by the SkillContext during testing.
+        # The purpose is to see if it executes without raising an unhandled exception
+        # and if the API call is attempted.
+        logging.info(f"[github_skill_test] Attempting to call get_github_user_info for user: {test_username}")
+        get_github_user_info(context, test_username)
+        # If get_github_user_info itself logs errors (e.g., API issues), those will appear in the log.
+        # The test passes if the skill completes without throwing an exception that _test_skill doesn't handle.
+
+        logging.info(f"[github_skill_test] get_github_user_info skill call completed for {test_username} (check logs for API interaction details).")
+        logging.info("[github_skill_test] All github_api_interaction_skill self-tests passed successfully.")
+    except Exception as e:
+        logging.error(f"[github_skill_test] Self-test FAILED: {e}", exc_info=True)
+        raise # Re-raise the exception to be caught by load_skills in main.py

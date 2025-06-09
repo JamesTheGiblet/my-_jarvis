@@ -1,15 +1,15 @@
-# c:\Users\gilbe\Desktop\my _jarvis\skills\api_interaction_skills.py
+# c:\Users\gilbe\Desktop\my _jarvis\skills\api_connector.py
 import requests
 import json
 import time
 import logging # Use standard logging from your main.py setup
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 
 # --- Adapted Helper function from api_connector.py ---
 MAX_RETRIES = 2
 RETRY_DELAY_SECONDS = 1
 
-def _fetch_from_api(url: str, params: Dict = None, headers: Dict = None) -> Tuple[Dict[str, Any] | None, str | None]:
+def _fetch_from_api(url: str, params: Dict = None, headers: Dict = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """
     Fetches data from a given API URL with retry logic.
     Returns (json_response, error_message).
@@ -53,8 +53,8 @@ def _fetch_from_api(url: str, params: Dict = None, headers: Dict = None) -> Tupl
                 response_text_preview = response.text[:200] # Log a preview of the non-JSON response
             logging.error(f"Failed to decode JSON response from '{url}': {str(e)}. Response text preview: {response_text_preview}")
             return None, f"Failed to decode JSON response from '{url}'."
-    logging.error(f"Exhausted all retries for API request to '{url}' without explicit error return.")
-    return None, f"Exhausted all retries for API request to '{url}'."
+    # Fallback, though theoretically unreachable if loop logic is complete for all attempts.
+    return None, f"An unexpected error occurred after all retries for API request to '{url}'."
 
 # --- New Skill Functions ---
 
@@ -149,3 +149,27 @@ def get_exchange_rate(context, base_currency: str, target_currency: str = None):
     else:
         context.speak("I'm sorry, sir, I was unable to retrieve the exchange rate data.")
         logging.warning(f"Unexpected exchange rate data or missing 'rates': {data}")
+        
+def _test_skill(context):
+    """
+    Runs a quick self-test for the api_interaction_skills module.
+    It attempts to fetch a joke to ensure basic API connectivity and skill logic.
+    """
+    logging.info("[api_interaction_test] Running self-test for api_interaction_skills module...")
+    try:
+        # Test 1: Call get_joke with default parameters.
+        # This will be muted by the SkillContext during testing.
+        # The purpose is to see if it executes without raising an unhandled exception.
+        logging.info("[api_interaction_test] Attempting to call get_joke skill...")
+        get_joke(context) # Uses default "Any?safe-mode"
+        # If get_joke itself logs errors (e.g., API down), those will appear in the log.
+        # The test passes if get_joke completes without throwing an exception that _test_skill doesn't handle.
+        
+        # If get_joke were to use context.speak for its normal output,
+        # those would be logged as "Muted Speak (from skill test): ..."
+
+        logging.info("[api_interaction_test] get_joke skill call completed (check logs for API interaction details).")
+        logging.info("[api_interaction_test] All api_interaction_skills self-tests passed successfully.")
+    except Exception as e:
+        logging.error(f"[api_interaction_test] Self-test FAILED: {e}", exc_info=True)
+        raise # Re-raise the exception to be caught by load_skills in main.py

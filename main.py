@@ -37,9 +37,17 @@ class SkillContext:
     def __init__(self, speak_func, chat_session):
         self._raw_speak_func = speak_func # Store the original speak function from main
         self.chat_session = chat_session
+        self.is_muted = False # Initialize is_muted state
 
     def speak(self, text_to_speak, text_to_log=None):
-        self._raw_speak_func(text_to_speak, text_to_log)
+        if self.is_muted:
+            # If muted (e.g., during a skill test), only log the intended speech.
+            log_text = str(text_to_log if text_to_log is not None else text_to_speak)
+            logging.info(f"Muted Speak (from skill test): {log_text}")
+            # Do not call self._raw_speak_func, so no TTS and no console print via global speak
+        else:
+            # If not muted, use the normal speak function
+            self._raw_speak_func(text_to_speak, text_to_log)
 
 # --- Skill Registry (populated dynamically) ---
 SKILLS = {}
@@ -77,16 +85,26 @@ def load_skills(skill_context, skills_directory="skills"): # Added skill_context
                 if has_test_function:
                     logging.info(f"Found _test_skill in {module_name_full}. Running test...")
                     test_function = getattr(module, "_test_skill")
+
+                    original_mute_state = skill_context.is_muted  # Save current mute state
+                    skill_context.is_muted = True  # Mute context for the duration of the test
+                    
+                    test_passed = False
                     try:
                         # Pass the skill_context to the test function
                         test_function(skill_context) 
                         logging.info(f"SUCCESS: _test_skill for {module_name_full} passed.")
-                        # Test functions can use context.speak() for verbose success if desired
+                        test_passed = True
                     except Exception as test_e:
                         logging.error(f"FAILURE: _test_skill for {module_name_full} failed: {test_e}", exc_info=True)
-                        # Speak a warning if a self-test fails
-                        skill_context.speak(f"Warning: Self-test for skills in {module_name_short} module failed. Please check the logs.")
+                        # test_passed remains False
+                    finally:
+                        skill_context.is_muted = original_mute_state # Restore original mute state
 
+                    if not test_passed:
+                        # Speak a warning if a self-test fails
+                        # This speak call uses the restored mute state, so it will be audible.
+                        skill_context.speak(f"Warning: Self-test for skills in {module_name_short} module failed. Please check the logs.")
             except ImportError as e:
                 logging.error(f"Failed to import module {module_name_full}: {e}")
             except Exception as e:
