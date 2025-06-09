@@ -76,12 +76,20 @@ def process_command_with_llm(command, chat_session):
         - calculate_cosine: Calculates cosine of an angle. Requires 'angle_degrees' (float) argument.
  
         If the request is conversational (e.g., a greeting), respond with skill 'speak'.
+        When using the 'speak' skill, provide the conversational response in the 'text' argument.
 
         Respond ONLY in a single, clean JSON format like:
         {{
             "skill": "web_search",
             "args": {{
                 "query": "weather in London"
+            }}
+        }}
+        Or for a conversational reply:
+        {{
+            "skill": "speak",
+            "args": {{
+                "text": "You're welcome, sir!"
             }}
         }}
         

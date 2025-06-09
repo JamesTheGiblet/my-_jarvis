@@ -20,7 +20,7 @@ def get_date(context): # Accepts context
 
 def web_search(context, query=""): # Accepts context
     """
-    Performs a web search, speaks the titles and a relevant snippet from the top 3 results,
+    Performs a web search, speaks the title and a relevant snippet from the top result,
     and displays their URLs.
     """
     if not query:
@@ -29,10 +29,10 @@ def web_search(context, query=""): # Accepts context
     context.speak(f"Right away. Searching the web for '{query}'...")
     try:
         all_results = list(search(query))
-        results = all_results[:3]
+        results = all_results[:1] # Process only the top 1 result
 
         if results:
-            context.speak("Here are the top results I found:")
+            context.speak("Here is the top result I found:")
             for url in results:
                 try:
                     # Fetch page content with a user-agent and timeout
@@ -54,11 +54,13 @@ def web_search(context, query=""): # Accepts context
                         max_chars_for_snippet = 7000 # Approx 1.5k-2k tokens
                         truncated_text_for_snippet = extracted_text[:max_chars_for_snippet]
 
+                        # Modified prompt to explicitly ask for plain text and not JSON/skill
                         snippet_prompt = (
+                            f"You are an assistant tasked with extracting a concise answer snippet from text. "
                             f"Based SOLELY on the following text extracted from the webpage [{url}], "
-                            f"provide a very concise snippet (1-2 sentences, max 50 words) that directly attempts to answer the question: '{query}'. "
+                            f"provide a very concise plain text answer (1-2 sentences, max 50 words) to the question: '{query}'. "
                             "If the answer is not clearly present in this excerpt, state 'Information not readily found in the summary.' "
-                            f"Do not use any prior knowledge. Extracted text:\n---\n{truncated_text_for_snippet}\n---"
+                            f"Do not use any prior knowledge. Do NOT format your response as JSON. Do NOT suggest a skill. Just provide the plain text answer or the 'not found' message. Extracted text:\n---\n{truncated_text_for_snippet}\n---\nPlain text answer:"
                         )
                         try:
                             llm_snippet_response = context.chat_session.send_message(snippet_prompt)
