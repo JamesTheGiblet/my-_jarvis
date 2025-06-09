@@ -116,6 +116,53 @@ def load_skills(skill_context: SkillContext, skills_directory: str = "skills") -
             except Exception as e:
                 logging.error(f"Error loading skill from {module_name_full}: {e}")
 
+def generate_skills_description_for_llm(skills_from_files: Dict[str, Callable[..., Any]], global_speak_func: Callable) -> str:
+    """
+    Generates a formatted string describing available skills for the LLM.
+    Includes skills loaded from files and the built-in speak capability.
+    """
+    descriptions = []
+
+    # 1. Add built-in 'speak' skill description
+    # The LLM is expected to use it as: {"skill": "speak", "args": {"text": "..."}}
+    speak_doc = inspect.getdoc(global_speak_func) or "Responds with speech."
+    # Taking the first line of the docstring for brevity in the prompt
+    speak_doc_first_line = speak_doc.strip().split('\n')[0]
+    descriptions.append(f"- speak: {speak_doc_first_line} (Args: text)")
+
+    # 2. Add skills loaded from files
+    for skill_name, skill_func in skills_from_files.items():
+        docstring = inspect.getdoc(skill_func)
+        if not docstring:
+            docstring_first_line = "No description available."
+        else:
+            docstring_first_line = docstring.strip().split('\n')[0]
+
+        arg_details = ""
+        try:
+            sig = inspect.signature(skill_func)
+            params = []
+            for name, param in sig.parameters.items():
+                if name == 'context':  # Skip context parameter for LLM description
+                    continue
+                param_str = name
+                if param.annotation != inspect.Parameter.empty and hasattr(param.annotation, '__name__'):
+                    param_str += f" ({param.annotation.__name__})"
+                params.append(param_str)
+            
+            if params:
+                arg_details = f" (Args: {', '.join(params)})"
+            else:
+                arg_details = " (Takes no additional arguments)"
+        except ValueError:  # inspect.signature might fail for some callables
+            arg_details = " (Argument inspection not available)"
+        descriptions.append(f"- {skill_name}: {docstring_first_line}{arg_details}")
+    
+    if not descriptions:
+        return "No skills are currently available."
+        
+    return "You have access to the following skills/tools:\n" + "\n".join(descriptions)
+
 def fallback_handler(context: SkillContext, original_input: str) -> None:
     """Handles cases where the LLM fails to select a skill."""
     context.speak("I'm not quite sure how to handle that. Should I try searching the web for you?")
@@ -148,7 +195,10 @@ def main() -> None:
     # Load skills dynamically at startup, passing the context for tests
     failed_skill_module_tests = load_skills(skill_context)
     
-    startup_message = "Praxis (Phase 1 foundational architecture complete). Systems nominal."
+    # Generate the dynamic skills description for the LLM
+    available_skills_prompt_str = generate_skills_description_for_llm(SKILLS, speak)
+
+    startup_message = "Praxis (Phase 2 observe, evaluate and report complete). Systems nominal."
     if not failed_skill_module_tests:
         startup_message += " All skill module self-tests passed successfully."
     else:
@@ -171,7 +221,11 @@ def main() -> None:
             clean_input = strip_wake_words(user_input)
             
             # 1. THINK: Get the desired action from the LLM brain
-            parsed_command: Optional[Dict[str, Any]] = process_command_with_llm(clean_input, chat_session)
+            parsed_command: Optional[Dict[str, Any]] = process_command_with_llm(
+                command=clean_input, 
+                chat_session=chat_session,
+                available_skills_prompt_str=available_skills_prompt_str # Pass the dynamic skills list
+            )
 
             # 2. ACT: Execute the command
             if parsed_command:
