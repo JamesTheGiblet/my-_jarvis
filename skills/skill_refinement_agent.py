@@ -4,6 +4,7 @@ import os
 import inspect
 from typing import Any, Optional, Dict, List
 from datetime import datetime
+from skills import prompt_tuning_agent # Import the module
 
 # Assuming knowledge_base.py will have these functions:
 # - get_top_failing_skill_info() -> Optional[Dict[str, Any]]
@@ -82,11 +83,27 @@ def attempt_skill_refinement(context: Any) -> None:
     recent_errors_str = "No recent error messages found."
     if hasattr(context.kb, "get_recent_failures_for_skill"):
         errors = context.kb.get_recent_failures_for_skill(skill_name, limit=3)
+        type_error_count = 0
+        arg_related_keywords = ["argument", "parameter", "missing", "required", "typeerror"]
         if errors:
             recent_errors_str = "Recent Error Messages:\n" + "\n".join([
                 f"- Args: {e.get('args_used', 'N/A')}, Error: {e.get('error_message', 'N/A')}" for e in errors
             ])
+            for e in errors:
+                error_msg_lower = (e.get('error_message') or "").lower()
+                if "typeerror" in error_msg_lower or any(keyword in error_msg_lower for keyword in arg_related_keywords) :
+                    type_error_count +=1
+        
+        # Heuristic: If many recent errors are argument-related, suggest prompt tuning first.
+        if errors and type_error_count / len(errors) >= 0.5: # If 50% or more errors seem arg-related
+            context.speak(f"Many recent errors for '{skill_name}' appear to be argument-related. I will first suggest a prompt tuning review.")
+            logging.info(f"SkillRefinementAgent: Highlighting argument-related errors for '{skill_name}'. Triggering prompt tuning suggestion.")
+            if hasattr(prompt_tuning_agent, "autonomously_analyze_and_suggest_prompt_tuning"):
+                 # Pass a more specific issue description if desired, or let the autonomous one run.
+                prompt_tuning_agent._generate_and_save_prompt_suggestion(context, f"The skill '{skill_name}' frequently encounters argument-related errors (e.g., TypeErrors). Review its invocation in the main prompt.", _get_brain_py_content_for_prompt_tuner(context)) # Requires helper
+                return # Exit skill refinement for now, let prompt tuning take precedence
 
+    
     user_feedback_str = "No recent negative user feedback found."
     if hasattr(context.kb, "get_recent_feedback_for_skill"):
         feedback = context.kb.get_recent_feedback_for_skill(skill_name, was_correct=False, limit=3)
@@ -157,6 +174,23 @@ Corrected Python Code:
     except Exception as e:
         context.speak(f"Successfully received a code proposal, but failed to save it. Error: {e}")
         logging.error(f"SkillRefinementAgent: Error saving proposed fix: {e}", exc_info=True)
+
+def _get_brain_py_content_for_prompt_tuner(context: Any) -> str | None:
+    """
+    Helper to read brain.py content, used by skill_refinement_agent
+    when it wants to trigger prompt_tuning_agent.
+    """
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")) # Go up two levels
+    brain_path_full = os.path.join(project_root, prompt_tuning_agent.BRAIN_FILE_PATH)
+    try:
+        with open(brain_path_full, 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        logging.error(f"SkillRefinementAgent: Could not find {prompt_tuning_agent.BRAIN_FILE_PATH} for prompt tuning.")
+        return None
+    except Exception as e:
+        logging.error(f"SkillRefinementAgent: Error reading {prompt_tuning_agent.BRAIN_FILE_PATH} for prompt tuning: {e}", exc_info=True)
+        return None
 
 def _test_skill(context: Any) -> None:
     """Placeholder test for the skill refinement agent. Full testing is complex."""
