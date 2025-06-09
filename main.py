@@ -208,7 +208,7 @@ def main() -> None:
         except Exception as e:
             logging.error(f"Main: Error calling initialize_calendar_data: {e}", exc_info=True)
 
-    startup_message = "Praxis (Phase 2 observe and reposrt complete). Systems nominal."
+    startup_message = "Praxis (Phase 2 observe and report complete). Systems nominal."
     if not failed_skill_module_tests:
         startup_message += " All skill module self-tests passed successfully."
     else:
