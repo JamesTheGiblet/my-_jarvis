@@ -44,10 +44,11 @@ class SkillContext:
 # --- Skill Registry (populated dynamically) ---
 SKILLS = {}
 
-def load_skills(skills_directory="skills"):
+def load_skills(skill_context, skills_directory="skills"): # Added skill_context
     """
     Dynamically loads skills from Python files in the specified directory.
     Skills are public functions (not starting with an underscore).
+    Also runs a _test_skill function if present in the module.
     """
     global SKILLS
     if not os.path.isdir(skills_directory):
@@ -55,19 +56,37 @@ def load_skills(skills_directory="skills"):
         return
 
     # Ensure the skills directory is treated as a package by having __init__.py
-    # For importlib.import_module to work like 'skills.module_name'
-    
     for filename in os.listdir(skills_directory):
         if filename.endswith(".py") and not filename.startswith("_"):
-            module_name_short = filename[:-3] # e.g., utility_skills
-            module_name_full = f"{skills_directory}.{module_name_short}" # e.g., skills.utility_skills
+            module_name_short = filename[:-3]
+            module_name_full = f"{skills_directory}.{module_name_short}"
             try:
                 module = importlib.import_module(module_name_full)
+                has_test_function = hasattr(module, "_test_skill")
+                # test_passed = None # None: no test, True: passed, False: failed (implicit)
+
                 for attribute_name in dir(module):
                     attribute = getattr(module, attribute_name)
                     if inspect.isfunction(attribute) and not attribute_name.startswith("_"):
+                        # Exclude _test_skill itself from being registered as a callable skill
+                        if attribute_name == "_test_skill":
+                            continue
                         SKILLS[attribute_name] = attribute
                         logging.info(f"Successfully loaded skill: {attribute_name} from {module_name_full}")
+                
+                if has_test_function:
+                    logging.info(f"Found _test_skill in {module_name_full}. Running test...")
+                    test_function = getattr(module, "_test_skill")
+                    try:
+                        # Pass the skill_context to the test function
+                        test_function(skill_context) 
+                        logging.info(f"SUCCESS: _test_skill for {module_name_full} passed.")
+                        # Test functions can use context.speak() for verbose success if desired
+                    except Exception as test_e:
+                        logging.error(f"FAILURE: _test_skill for {module_name_full} failed: {test_e}", exc_info=True)
+                        # Speak a warning if a self-test fails
+                        skill_context.speak(f"Warning: Self-test for skills in {module_name_short} module failed. Please check the logs.")
+
             except ImportError as e:
                 logging.error(f"Failed to import module {module_name_full}: {e}")
             except Exception as e:
@@ -88,17 +107,20 @@ def fallback_handler(context, original_input):
 def main():
     """The main function to orchestrate the AI assistant."""
     if not model:
-        speak("AI Brain failed to initialize. Please check your API key and configuration. Exiting.")
+        # Use print directly as speak() might rely on engine which could be part of the problem
+        print("Codex: AI Brain failed to initialize. Please check your API key and configuration. Exiting.")
+        logging.critical("AI Brain failed to initialize. Exiting.")
         return
 
-    # Load skills dynamically at startup
-    load_skills()
-    
-    speak("Codex MK5 (Modular) online. Systems nominal.")
-    
+    # Initialize chat session and skill context BEFORE loading skills
     chat_session = model.start_chat(history=[])
     # Create a context object to pass to skills
     skill_context = SkillContext(speak, chat_session)
+
+    # Load skills dynamically at startup, passing the context for tests
+    load_skills(skill_context) 
+    
+    speak("Codex MK5 (Modular) online. Systems nominal.")
 
     while True:
         try:

@@ -147,6 +147,34 @@ def search_within_url_content(context, url_to_search: str, search_query_within_u
         context.speak(f"I encountered an unexpected issue while trying to find the answer within {url_to_search}.")
 
 
+def _test_skill(context):
+    """
+    Runs a quick self-test for the core_skills module.
+    It calls get_time and get_date to ensure they execute without error.
+    The test itself can use context.speak for verbose output if desired during testing.
+    If any part of this test raises an unhandled exception,
+    the load_skills function in main.py will catch it and report a failure for this module.
+    """
+    logging.info("[core_skills_test] Running self-test for core_skills module...")
+    try:
+        # Test 1: Call get_time
+        # context.speak("Core test: Invoking get_time...") # Optional: for verbose test output
+        # Store original speak to potentially silence parts of the test
+        # For this example, we'll let them speak normally.
+        get_time(context) # This will speak the time as part of its normal operation
+        logging.info("[core_skills_test] get_time executed.")
+
+        # Test 2: Call get_date
+        # context.speak("Core test: Invoking get_date...") # Optional
+        get_date(context) # This will speak the date
+        logging.info("[core_skills_test] get_date executed.")
+
+        logging.info("[core_skills_test] All core_skills self-tests passed successfully.")
+    except Exception as e:
+        logging.error(f"[core_skills_test] Self-test FAILED: {e}", exc_info=True)
+        raise # Re-raise the exception to be caught by load_skills in main.py
+
+
 def recall_memory(context): # Accepts context
     """Summarizes recent conversation memory (last 5 messages)."""
     if not context.chat_session.history:
