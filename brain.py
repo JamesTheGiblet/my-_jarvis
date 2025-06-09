@@ -1,5 +1,6 @@
 # brain.py
 import json
+import logging # Added logging
 import re
 from typing import Optional, Dict, Any, TYPE_CHECKING
 
@@ -24,8 +25,8 @@ def extract_json(text: str) -> Optional[Dict[str, Any]]:
         if json_match:
             return json.loads(json_match.group())
     except json.JSONDecodeError:
-        # Consider logging this instead of printing, or in addition to printing
-        print("Praxis Brain Warning: Failed to decode JSON from LLM response.")
+        # Log the warning
+        logging.warning("Praxis Brain Warning: Failed to decode JSON from LLM response. Text was: %s", text)
         return None
     return None
 
@@ -66,6 +67,24 @@ def process_command_with_llm(
                 "text": "You're welcome, sir!"
             }}
         }}
+        Or for asking and storing a profile item:
+        {{
+            "skill": "ask_and_store_profile_item",
+            "args": {{
+                "question_to_ask": "Understood. To confirm, you enjoy gardening. What specific aspect of gardening do you like most, or should I just note 'gardening' as a general interest?",
+                "item_category": "interest",
+                "item_key": "hobby_gardening"
+            }}
+        }}
+        Or for directly recording a user profile item:
+        {{
+            "skill": "record_user_profile_item",
+            "args": {{
+                "item_category": "interest",
+                "item_key": "hobby",
+                "item_value": "gardening"
+            }}
+        }}
         
         User's latest request: "{command}"
 
@@ -76,5 +95,5 @@ def process_command_with_llm(
         response = chat_session.send_message(prompt)
         return extract_json(response.text)
     except Exception as e:
-        print(f"Praxis LLM Brain Error: {e}") # Consider logging this error as well
+        logging.error(f"Praxis LLM Brain Error during send_message or extract_json: {e}", exc_info=True)
         return None

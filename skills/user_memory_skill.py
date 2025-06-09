@@ -2,19 +2,21 @@
 import logging
 from typing import Any, Optional
 
-def ask_and_store_fact(context: Any, question_to_ask: str, data_key: str) -> None:
+def ask_and_store_profile_item(context: Any, question_to_ask: str, item_category: str, item_key: str) -> None:
     """
-    Asks the user a question, takes their input, and stores it in the knowledge base.
+    Asks the user a question and stores their answer as a profile item.
     Args:
         context: The skill context.
         question_to_ask: The question Praxis should ask the user.
-        data_key: The key under which to store the user's answer in the knowledge base.
+        item_category: The category for the profile item (e.g., 'interest', 'preference').
+        item_key: The specific key for the profile item (e.g., 'hobby', 'music_genre').
     """
-    if not hasattr(context, "kb") or not hasattr(context.kb, "store_user_data"):
+    if not hasattr(context, "kb") or \
+       not hasattr(context.kb, "store_user_profile_item"):
         context.speak("I'm sorry, I'm unable to access my memory storage functions at the moment.")
-        logging.error("UserMemorySkill: KnowledgeBase or store_user_data not available in context.")
+        logging.error("UserMemorySkill: KnowledgeBase or store_user_profile_item not available in context.")
         return
-    
+
     if not hasattr(context, "current_user_name") or not context.current_user_name:
         context.speak("I'm sorry, I don't know who I'm speaking with to store this information.")
         logging.error("UserMemorySkill: current_user_name not available in context.")
@@ -22,57 +24,67 @@ def ask_and_store_fact(context: Any, question_to_ask: str, data_key: str) -> Non
 
     context.speak(question_to_ask)
     try:
-        # This input will be captured by the main loop's input()
-        # For a skill to directly get input, main loop would need modification
-        # For now, we assume the LLM might use this to prompt Praxis to ask,
-        # and the user's *next* input is the answer.
-        # A more direct way:
         if context.is_muted: # During tests, we can't use input()
-            user_answer = f"Simulated answer for {data_key}"
-            logging.info(f"UserMemorySkill (Muted Test): Simulating input for '{question_to_ask}': {user_answer}")
+            user_answer = f"Simulated answer for {item_category}/{item_key}"
+            logging.info(f"UserMemorySkill (Muted Test): Simulating input for '{question_to_ask}' (cat: {item_category}, key: {item_key}): {user_answer}")
         else:
-            # This is a conceptual challenge: skills typically don't call input() directly.
-            # The main loop handles input. This skill is more about *setting up* the next interaction.
-            # For a direct implementation, the main loop would need to be aware of a skill wanting input.
-            # Let's rephrase: this skill *prompts* the user, and the main loop will capture the next input.
-            # The storage would happen *after* that input is received, perhaps via another skill or logic.
+            # Direct input approach for simplicity in this skill.
+            print(f"Praxis (to you): {question_to_ask}")
+            user_answer = input(f"Your answer for {item_category} - {item_key}: ").strip()
+            logging.info(f"UserMemorySkill: User answered '{user_answer}' for category '{item_category}', key '{item_key}'.")
 
-            # For a simplified direct approach (less ideal for skill architecture but functional for this request):
-            print(f"Praxis (to you): {question_to_ask}") # Re-iterate for clarity if speak is TTS only
-            user_answer = input(f"Your answer for '{data_key}': ").strip()
-            logging.info(f"UserMemorySkill: User answered '{user_answer}' for key '{data_key}'.")
-
-        if context.kb.store_user_data(context.current_user_name, data_key, user_answer):
-            context.speak(f"Thank you. I've remembered that '{data_key}' is '{user_answer}'.")
+        if context.kb.store_user_profile_item(context.current_user_name, item_category, item_key, user_answer):
+            context.speak(f"Thank you. I've noted that your {item_key} ({item_category}) is '{user_answer}'.")
         else:
             context.speak(f"I had trouble remembering that. Please try again or check the logs.")
 
     except Exception as e:
-        logging.error(f"UserMemorySkill: Error in ask_and_store_fact for key '{data_key}': {e}", exc_info=True)
+        logging.error(f"UserMemorySkill: Error in ask_and_store_profile_item for cat '{item_category}', key '{item_key}': {e}", exc_info=True)
         context.speak("I encountered an issue while trying to ask or store that information.")
 
-def recall_fact(context: Any, data_key: str) -> None:
+def recall_profile_item(context: Any, item_category: str, item_key: str) -> None:
     """
-    Recalls a piece of information from the knowledge base using its key.
+    Recalls a specific profile item for the current user.
     Args:
         context: The skill context.
-        data_key: The key of the data to recall.
+        item_category: The category of the profile item.
+        item_key: The key of the profile item.
     """
-    if not hasattr(context, "kb") or not hasattr(context.kb, "get_user_data"):
-        context.speak("I'm sorry, I'm unable to access my memory retrieval functions at the moment.")
-        logging.error("UserMemorySkill: KnowledgeBase or get_user_data not available in context.")
+    if not hasattr(context, "kb") or \
+       not hasattr(context.kb, "get_user_profile_item"):
+        context.speak("I'm sorry, I'm unable to access my profile memory retrieval functions at the moment.")
+        logging.error("UserMemorySkill: KnowledgeBase or get_user_profile_item not available in context.")
         return
-    
+
     if not hasattr(context, "current_user_name") or not context.current_user_name:
         context.speak("I'm sorry, I don't know who I'm speaking with to recall this information.")
         logging.error("UserMemorySkill: current_user_name not available in context.")
         return
 
-    stored_value = context.kb.get_user_data(context.current_user_name, data_key)
+    stored_value = context.kb.get_user_profile_item(context.current_user_name, item_category, item_key)
     if stored_value is not None:
-        context.speak(f"I recall that '{data_key}' is '{stored_value}'.")
+        context.speak(f"For you, {context.current_user_name}, I recall that {item_key} ({item_category}) is '{stored_value}'.")
     else:
-        context.speak(f"I don't seem to have any information stored for '{data_key}'.")
+        context.speak(f"I don't seem to have any information stored for {item_key} ({item_category}) for you, {context.current_user_name}.")
+
+def list_user_profile_category(context: Any, item_category: str) -> None:
+    """Lists all profile items for the current user within a given category."""
+    if not hasattr(context, "kb") or not hasattr(context.kb, "get_user_profile_items_by_category"):
+        context.speak("I'm sorry, I can't access the profile item listing function right now.")
+        logging.error("UserMemorySkill: KnowledgeBase or get_user_profile_items_by_category not available.")
+        return
+    if not hasattr(context, "current_user_name") or not context.current_user_name:
+        context.speak("I need to know who you are to list profile items.")
+        return
+
+    items = context.kb.get_user_profile_items_by_category(context.current_user_name, item_category)
+    if items:
+        response = f"For you, {context.current_user_name}, under the category '{item_category}', I have:\n"
+        for item in items:
+            response += f"- {item['item_key']}: {item['item_value']}\n"
+        context.speak(response.strip())
+    else:
+        context.speak(f"I don't have any items stored for you under the category '{item_category}'.")
 
 def _test_skill(context: Any) -> None:
     """Tests the user memory skill operations."""
@@ -82,12 +94,21 @@ def _test_skill(context: Any) -> None:
         logging.warning("UserMemorySkill Test: context.current_user_name not set, using a dummy test user.")
         context.current_user_name = "test_user_for_skill" # Set a dummy for test if not present
 
-    # Note: ask_and_store_fact is hard to test non-interactively without mocking input()
-    # We'll test recall_fact by pre-populating.
-    test_key = "test_user_memory_color"
-    test_value = "chartreuse"
-    assert context.kb.store_user_data(context.current_user_name, test_key, test_value), "Failed to store test data for recall_fact test"
-    recall_fact(context, test_key) # Should speak "chartreuse"
-    assert f"'{test_key}' is '{test_value}'" in context.get_last_spoken_message_for_test(), "recall_fact did not speak the correct value"
-    assert context.kb.delete_user_data(context.current_user_name, test_key), "Failed to clean up test data"
-    logging.info("UserMemorySkill Test: Completed successfully (ask_and_store_fact part is conceptual for non-interactive test).")
+    # Test storing and recalling a profile item
+    test_cat = "preference"
+    test_key = "favorite_color"
+    test_val = "cerulean"
+
+    # Simulate ask_and_store_profile_item without actual input() for testing
+    # Directly use store_user_profile_item for test setup
+    assert context.kb.store_user_profile_item(context.current_user_name, test_cat, test_key, test_val), "Test: Failed to store profile item."
+    
+    recall_profile_item(context, test_cat, test_key)
+    expected_recall_message_part = f"{test_key} ({test_cat}) is '{test_val}'"
+    assert expected_recall_message_part in context.get_last_spoken_message_for_test(), f"Test: Recall message mismatch. Got: {context.get_last_spoken_message_for_test()}"
+    context.clear_spoken_messages_for_test()
+
+    list_user_profile_category(context, test_cat)
+    assert f"- {test_key}: {test_val}" in context.get_last_spoken_message_for_test(), "Test: List category message mismatch."
+
+    logging.info("UserMemorySkill Test: Completed successfully.")

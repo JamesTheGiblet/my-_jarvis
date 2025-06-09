@@ -53,6 +53,18 @@ def init_db():
                     PRIMARY KEY (user_name, data_key)
                 )
             """)
+
+            # Table for structured user profile items
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_profile_items (
+                    user_name TEXT NOT NULL,
+                    item_category TEXT NOT NULL, -- e.g., 'interest', 'preference', 'fact'
+                    item_key TEXT NOT NULL,      -- e.g., 'hobby', 'music_genre', 'favorite_color'
+                    item_value TEXT,
+                    last_updated_timestamp TEXT,
+                    PRIMARY KEY (user_name, item_category, item_key)
+                )
+            """)
             conn.commit()
             logging.info(f"KnowledgeBase: Database '{DB_NAME}' initialized successfully.")
     except sqlite3.Error as e:
@@ -317,6 +329,73 @@ def delete_user_data(user_name: str, data_key: str) -> bool:
     except sqlite3.Error as e:
         logging.error(f"KnowledgeBase: Error deleting user data for user '{user_name}', key '{data_key}': {e}", exc_info=True)
         return False
+
+def store_user_profile_item(user_name: str, item_category: str, item_key: str, item_value: str) -> bool:
+    """
+    Stores or updates an item in the user_profile_items table.
+    Returns True on success, False on failure.
+    """
+    if not all([user_name, item_category, item_key]):
+        logging.error("KnowledgeBase: user_name, item_category, and item_key cannot be empty for store_user_profile_item.")
+        return False
+    timestamp_now_utc = datetime.now(timezone.utc).isoformat()
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO user_profile_items (user_name, item_category, item_key, item_value, last_updated_timestamp)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(user_name, item_category, item_key) DO UPDATE SET
+                    item_value = excluded.item_value,
+                    last_updated_timestamp = excluded.last_updated_timestamp
+            """, (user_name, item_category, item_key, item_value, timestamp_now_utc))
+            conn.commit()
+            logging.info(f"KnowledgeBase: Stored/Updated profile item for user '{user_name}', category '{item_category}', key '{item_key}'.")
+            return True
+    except sqlite3.Error as e:
+        logging.error(f"KnowledgeBase: Error storing profile item for user '{user_name}', category '{item_category}', key '{item_key}': {e}", exc_info=True)
+        return False
+
+def get_user_profile_item(user_name: str, item_category: str, item_key: str) -> Optional[str]:
+    """
+    Retrieves a specific item_value from the user_profile_items table.
+    Returns the value as a string, or None if not found or an error occurs.
+    """
+    if not all([user_name, item_category, item_key]):
+        logging.error("KnowledgeBase: user_name, item_category, and item_key cannot be empty for get_user_profile_item.")
+        return None
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT item_value FROM user_profile_items WHERE user_name = ? AND item_category = ? AND item_key = ?", 
+                           (user_name, item_category, item_key))
+            row = cursor.fetchone()
+            return row['item_value'] if row else None
+    except sqlite3.Error as e:
+        logging.error(f"KnowledgeBase: Error retrieving profile item for user '{user_name}', category '{item_category}', key '{item_key}': {e}", exc_info=True)
+        return None
+
+def get_user_profile_items_by_category(user_name: str, item_category: str) -> list[dict]:
+    """
+    Retrieves all items for a given user and category from user_profile_items.
+    Returns a list of dictionaries, each containing item_key and item_value.
+    """
+    if not all([user_name, item_category]):
+        logging.error("KnowledgeBase: user_name and item_category cannot be empty for get_user_profile_items_by_category.")
+        return []
+    results = []
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT item_key, item_value FROM user_profile_items WHERE user_name = ? AND item_category = ? ORDER BY item_key", 
+                           (user_name, item_category))
+            for row in cursor.fetchall():
+                results.append(dict(row))
+    except sqlite3.Error as e:
+        logging.error(f"KnowledgeBase: Error retrieving profile items for user '{user_name}', category '{item_category}': {e}", exc_info=True)
+    return results
+
+# Consider adding delete_user_profile_item if needed for management.
 
 # Initialize the DB when this module is loaded (e.g., at app startup if imported early)
 # Alternatively, call init_db() explicitly from main.py

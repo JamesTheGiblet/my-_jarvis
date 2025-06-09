@@ -3,6 +3,7 @@ from datetime import datetime
 import logging
 import os
 import importlib
+import random
 import inspect, time # Added time
 from typing import Callable, Dict, Any, Optional
 import knowledge_base # Import the new module
@@ -253,11 +254,17 @@ def main() -> None:
         try:
             # Check for inactivity BEFORE asking for input
             current_time = datetime.now()
+            # In main.py, inside the while True loop, before input()
             if (current_time - last_interaction_time).total_seconds() > INACTIVITY_THRESHOLD_SECONDS:
-                # This is a simple check. A more sophisticated system might use
-                # non-blocking input or a separate thread for continuous monitoring.
-                skill_context.speak("It's been a while, sir. Is there anything I can assist you with?")
-                last_interaction_time = current_time # Reset timer after asking to avoid immediate re-trigger
+                if "suggest_engagement_topic" in SKILLS:
+                # Randomly decide to offer assistance or a topic
+                    if random.choice([True, False]):
+                        SKILLS["suggest_engagement_topic"](skill_context)
+                    else:
+                        skill_context.speak(f"It's been a while, {skill_context.current_user_name}. Is there anything I can assist you with?")
+                else:
+                    skill_context.speak(f"It's been a while, {skill_context.current_user_name}. Is there anything I can assist you with?")
+                last_interaction_time = current_time 
 
             user_input = input("You: ").strip()
             if not user_input:
