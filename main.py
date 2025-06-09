@@ -55,16 +55,18 @@ class SkillContext:
 # --- Skill Registry (populated dynamically) ---
 SKILLS: Dict[str, Callable[..., Any]] = {}
 
-def load_skills(skill_context: SkillContext, skills_directory: str = "skills") -> None:
+def load_skills(skill_context: SkillContext, skills_directory: str = "skills") -> list[str]:
     """
     Dynamically loads skills from Python files in the specified directory.
     Skills are public functions (not starting with an underscore).
     Also runs a _test_skill function if present in the module.
+    Returns a list of short module names that failed their self-tests.
     """
     global SKILLS
+    failed_module_tests: list[str] = []
     if not os.path.isdir(skills_directory):
         logging.warning(f"Skills directory '{skills_directory}' not found. No custom skills loaded.")
-        return
+        return failed_module_tests
 
     # Ensure the skills directory is treated as a package by having __init__.py
     for filename in os.listdir(skills_directory):
@@ -105,6 +107,7 @@ def load_skills(skill_context: SkillContext, skills_directory: str = "skills") -
                     if not test_passed:
                         # Speak a warning if a self-test fails
                         # This speak call uses the restored mute state, so it will be audible.
+                        failed_module_tests.append(module_name_short)
                         skill_context.speak(f"Warning: Self-test for skills in {module_name_short} module failed. Please check the logs.")
             except ImportError as e:
                 logging.error(f"Failed to import module {module_name_full}: {e}")
@@ -138,9 +141,15 @@ def main() -> None:
     skill_context = SkillContext(speak, chat_session)
 
     # Load skills dynamically at startup, passing the context for tests
-    load_skills(skill_context) 
+    failed_skill_module_tests = load_skills(skill_context)
     
-    speak("Praxis (Phase 1 foundational architecture complete). Systems nominal.")
+    startup_message = "Praxis (Phase 1 foundational architecture complete). Systems nominal."
+    if not failed_skill_module_tests:
+        startup_message += " All skill module self-tests passed successfully."
+    else:
+        failed_modules_str = ", ".join(failed_skill_module_tests)
+        startup_message += f" Warning: The self-test for the following skill module(s) failed: {failed_modules_str}. Please investigate the logs."
+    speak(startup_message)
 
     while True:
         try:
