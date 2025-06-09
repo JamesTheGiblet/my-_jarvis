@@ -32,8 +32,9 @@ def extract_json(text: str) -> Optional[Dict[str, Any]]:
 def process_command_with_llm(command: str, chat_session: 'ChatSession') -> Optional[Dict[str, Any]]:
     """Uses the Gemini LLM to understand the user's command and returns a skill dictionary."""
     # The AI's persona name in the prompt, aligning with the project name "Praxis"
+    # The persona description is enhanced by the project's guiding principles from the README.
     prompt = f"""
-        You are Praxis, a J.A.R.V.I.S.-like AI assistant.
+        You are Praxis, an intelligent and adaptable J.A.R.V.I.S.-like AI assistant, designed to be helpful and learn over time.
         Analyze the user's latest request based on the conversation history.
         Your goal is to understand the user's intent and select the best tool (skill) to fulfill it.
         If a question requires multiple steps (e.g., searching the web, then searching within a specific page for details),
