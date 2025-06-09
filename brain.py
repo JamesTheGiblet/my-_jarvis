@@ -88,6 +88,9 @@ def process_command_with_llm(command: str, chat_session: 'ChatSession') -> Optio
         - calculate_sine: Calculates sine of an angle. Requires 'angle_degrees' (float) argument.
         - calculate_cosine: Calculates cosine of an angle. Requires 'angle_degrees' (float) argument.
  
+        - provide_feedback_on_last_action: Allows providing feedback on the last action. Requires 'was_correct' (boolean) argument. Optional 'comment' (string) argument.
+        - analyze_performance: Analyzes system performance. Requires 'query_type' (string: "most_used_skills", "highest_failure_rates", "recent_failures_for_skill", "all_recent_failures"). Optional 'skill_name' (string), 'period' (string: "today", "last_7_days", "overall", default "overall"), 'count' (integer, default 3).
+
         If the request is conversational (e.g., a greeting), respond with skill 'speak'.
         When using the 'speak' skill, provide the conversational response in the 'text' argument.
 

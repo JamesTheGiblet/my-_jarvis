@@ -38,10 +38,11 @@ def speak(text_to_speak: str, text_to_log: Optional[str] = None) -> None:
 
 class SkillContext:
     """A class to hold shared resources that skills might need."""
-    def __init__(self, speak_func, chat_session):
+    def __init__(self, speak_func, chat_session, knowledge_base_module):
         self._raw_speak_func = speak_func # Store the original speak function from main
         self.chat_session = chat_session
         self.is_muted = False # Initialize is_muted state
+        self.kb = knowledge_base_module # Provide access to knowledge_base functions
 
     def speak(self, text_to_speak: str, text_to_log: Optional[str] = None) -> None:
         if self.is_muted:
@@ -142,7 +143,7 @@ def main() -> None:
     # Initialize chat session and skill context BEFORE loading skills
     chat_session = model.start_chat(history=[])
     # Create a context object to pass to skills
-    skill_context = SkillContext(speak, chat_session)
+    skill_context = SkillContext(speak, chat_session, knowledge_base)
 
     # Load skills dynamically at startup, passing the context for tests
     failed_skill_module_tests = load_skills(skill_context)
