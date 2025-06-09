@@ -1,15 +1,22 @@
 # brain.py
 import json
 import re
+from typing import Optional, Dict, Any, TYPE_CHECKING
 
-def strip_wake_words(command):
+if TYPE_CHECKING: # To avoid circular import for type hinting
+    from google.generativeai.generative_models import ChatSession # type: ignore
+
+def strip_wake_words(command: str) -> str:
     """Removes wake words from the command."""
-    # Added 'jarvis' as a wake word
-    for wake in ["codex", "hey codex", "okay codex", "jarvis"]:
-        command = command.lower().replace(wake, "")
-    return command.strip()
+    wake_words = ["codex", "hey codex", "okay codex", "jarvis", "praxis", "hey praxis", "okay praxis"]
+    processed_command = command.lower()
+    for wake in wake_words:
+        if processed_command.startswith(wake):
+            processed_command = processed_command[len(wake):].strip()
+            break  # Remove only the first occurrence of a wake word phrase
+    return processed_command.strip()
 
-def extract_json(text):
+def extract_json(text: str) -> Optional[Dict[str, Any]]:
     """Extracts a JSON object from a string."""
     try:
         # Use a more robust regex to find json block
@@ -17,14 +24,16 @@ def extract_json(text):
         if json_match:
             return json.loads(json_match.group())
     except json.JSONDecodeError:
-        print("Warning: Failed to decode JSON from LLM response.")
+        # Consider logging this instead of printing, or in addition to printing
+        print("Praxis Brain Warning: Failed to decode JSON from LLM response.")
         return None
     return None
 
-def process_command_with_llm(command, chat_session):
+def process_command_with_llm(command: str, chat_session: 'ChatSession') -> Optional[Dict[str, Any]]:
     """Uses the Gemini LLM to understand the user's command and returns a skill dictionary."""
+    # The AI's persona name in the prompt, aligning with the project name "Praxis"
     prompt = f"""
-        You are Codex, a J.A.R.V.I.S.-like AI assistant.
+        You are Praxis, a J.A.R.V.I.S.-like AI assistant.
         Analyze the user's latest request based on the conversation history.
         Your goal is to understand the user's intent and select the best tool (skill) to fulfill it.
         If a question requires multiple steps (e.g., searching the web, then searching within a specific page for details),
@@ -102,5 +111,5 @@ def process_command_with_llm(command, chat_session):
         response = chat_session.send_message(prompt)
         return extract_json(response.text)
     except Exception as e:
-        print(f"LLM Brain Error: {e}")
+        print(f"Praxis LLM Brain Error: {e}") # Consider logging this error as well
         return None

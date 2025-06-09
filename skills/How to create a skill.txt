@@ -72,8 +72,8 @@ Step 4: (Automatic) Skill Loading
 ------------------------------------
 Your `main.py` is configured to automatically detect and load any public function
 (a function not starting with an underscore `_`) from `.py` files within the `skills/` directory.
-So, as long as your file is in `skills/` and your function is defined correctly,
-it will be available when you restart the assistant.
+So, as long as your file is in `skills/` and your function is defined correctly, it will
+be available to the system when you restart the assistant.
 
 ------------------------------------
 Step 5: Add a Self-Test Function (Optional but Recommended)
@@ -81,7 +81,9 @@ Step 5: Add a Self-Test Function (Optional but Recommended)
 To ensure your skill module integrates correctly and its basic functionalities
 are working, you can add a `_test_skill(context)` function to your skill file.
 
-1.  **Define `_test_skill(context)`**:
+1.  **Define `_test_skill(context)`:**
+    *   This test helps verify the integrity of the foundational skill, which is
+        crucial before it's used or adapted by Praxis's evolutionary mechanisms.
     *   This function should be named exactly `_test_skill` and take `context` as its
         first argument.
     *   The `main.py` script will automatically find and run this function at startup.

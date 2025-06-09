@@ -1,10 +1,11 @@
 # main.py (New Orchestrator Version)
 import logging
-import pyttsx3
 import os
 import importlib
 import inspect
+from typing import Callable, Dict, Any, Optional
 
+import pyttsx3
 # Import components from our new modules
 from config import model
 from brain import process_command_with_llm, strip_wake_words
@@ -19,18 +20,20 @@ except Exception as e:
     print(f"Failed to initialize TTS engine: {e}")
     engine = None
 
-def speak(text_to_speak, text_to_log=None):
+def speak(text_to_speak: str, text_to_log: Optional[str] = None) -> None:
     """Gives the AI a voice and prints the response."""
     tts_safe_text = str(text_to_speak)
     log_safe_text = str(text_to_log if text_to_log is not None else tts_safe_text)
 
-    print("Codex:", log_safe_text) # This goes to console and forms part of LLM's history view
+    # The AI's name for console output, aligning with the project name "Praxis"
+    ai_console_name = "Praxis"
+    print(f"{ai_console_name}: {log_safe_text}") # This goes to console
     if engine:
         try:
             engine.say(tts_safe_text) # TTS reads this
             engine.runAndWait()
         except Exception as e:
-            print(f"Warning: Text-to-speech failed. {e}")
+            print(f"{ai_console_name} Warning: Text-to-speech failed. {e}")
 
 class SkillContext:
     """A class to hold shared resources that skills might need."""
@@ -39,7 +42,7 @@ class SkillContext:
         self.chat_session = chat_session
         self.is_muted = False # Initialize is_muted state
 
-    def speak(self, text_to_speak, text_to_log=None):
+    def speak(self, text_to_speak: str, text_to_log: Optional[str] = None) -> None:
         if self.is_muted:
             # If muted (e.g., during a skill test), only log the intended speech.
             log_text = str(text_to_log if text_to_log is not None else text_to_speak)
@@ -50,9 +53,9 @@ class SkillContext:
             self._raw_speak_func(text_to_speak, text_to_log)
 
 # --- Skill Registry (populated dynamically) ---
-SKILLS = {}
+SKILLS: Dict[str, Callable[..., Any]] = {}
 
-def load_skills(skill_context, skills_directory="skills"): # Added skill_context
+def load_skills(skill_context: SkillContext, skills_directory: str = "skills") -> None:
     """
     Dynamically loads skills from Python files in the specified directory.
     Skills are public functions (not starting with an underscore).
@@ -71,7 +74,6 @@ def load_skills(skill_context, skills_directory="skills"): # Added skill_context
             try:
                 module = importlib.import_module(module_name_full)
                 has_test_function = hasattr(module, "_test_skill")
-                # test_passed = None # None: no test, True: passed, False: failed (implicit)
 
                 for attribute_name in dir(module):
                     attribute = getattr(module, attribute_name)
@@ -84,11 +86,10 @@ def load_skills(skill_context, skills_directory="skills"): # Added skill_context
                 
                 if has_test_function:
                     logging.info(f"Found _test_skill in {module_name_full}. Running test...")
-                    test_function = getattr(module, "_test_skill")
+                    test_function: Callable[[SkillContext], None] = getattr(module, "_test_skill")
 
                     original_mute_state = skill_context.is_muted  # Save current mute state
                     skill_context.is_muted = True  # Mute context for the duration of the test
-                    
                     test_passed = False
                     try:
                         # Pass the skill_context to the test function
@@ -110,24 +111,25 @@ def load_skills(skill_context, skills_directory="skills"): # Added skill_context
             except Exception as e:
                 logging.error(f"Error loading skill from {module_name_full}: {e}")
 
-def fallback_handler(context, original_input):
+def fallback_handler(context: SkillContext, original_input: str) -> None:
     """Handles cases where the LLM fails to select a skill."""
     context.speak("I'm not quite sure how to handle that. Should I try searching the web for you?")
     try:
         confirm = input("Search web? (y/n): ").strip().lower()
         if confirm == 'y' and "web_search" in SKILLS: # Check if web_search skill is loaded
-            SKILLS["web_search"](context, query=original_input)
+            SKILLS["web_search"](context, query=original_input) # Assuming web_search takes query
         elif confirm == 'y':
             context.speak("The web search skill is not available.")
     except Exception as e:
-        context.speak(f"An error occurred while handling your request: {e}")
+        logging.error(f"Error in fallback_handler during web search confirmation: {e}", exc_info=True)
+        context.speak("An unexpected error occurred while trying to process that.")
 
-def main():
+def main() -> None:
     """The main function to orchestrate the AI assistant."""
     if not model:
         # Use print directly as speak() might rely on engine which could be part of the problem
-        print("Codex: AI Brain failed to initialize. Please check your API key and configuration. Exiting.")
-        logging.critical("AI Brain failed to initialize. Exiting.")
+        print("Praxis: AI Brain (Gemini Model) failed to initialize. Please check your API key and configuration. Exiting.")
+        logging.critical("AI Brain (Gemini Model) failed to initialize. Exiting.")
         return
 
     # Initialize chat session and skill context BEFORE loading skills
@@ -138,7 +140,7 @@ def main():
     # Load skills dynamically at startup, passing the context for tests
     load_skills(skill_context) 
     
-    speak("Codex MK5 (Modular) online. Systems nominal.")
+    speak("Praxis (Foundational Layer) online. Systems nominal.")
 
     while True:
         try:
@@ -155,7 +157,7 @@ def main():
             clean_input = strip_wake_words(user_input)
             
             # 1. THINK: Get the desired action from the LLM brain
-            parsed_command = process_command_with_llm(clean_input, chat_session)
+            parsed_command: Optional[Dict[str, Any]] = process_command_with_llm(clean_input, chat_session)
 
             # 2. ACT: Execute the command
             if parsed_command:
