@@ -39,13 +39,14 @@ def extract_json(text: str) -> Optional[Dict[str, Any]]:
 def process_command_with_llm(
     command: str, 
     chat_session: 'ChatSession', 
-    available_skills_prompt_str: str  # New argument
+    available_skills_prompt_str: str,
+    ai_name: str = "Praxis"  # Added AI name parameter with default
 ) -> Optional[Dict[str, Any]]:
     """Uses the Gemini LLM to understand the user's command and returns a skill dictionary."""
     # The AI's persona name in the prompt, aligning with the project name "Praxis"
     # The persona description is enriched by the project's guiding principles and vision from the README.md.
     prompt = f"""
-        You are Praxis, a J.A.R.V.I.S.-like AI assistant.
+        You are {ai_name}, a J.A.R.V.I.S.-like AI assistant.
         Your architecture is modular, built upon a set of specialized skills. Your primary function is to intelligently orchestrate these skills to assist the user effectively.
         You are designed to be adaptable, context-aware, and to learn from interactions.
 

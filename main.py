@@ -43,12 +43,14 @@ def set_gui_output_callback(callback_func: Callable[[str], None]) -> None:
     global gui_output_callback
     gui_output_callback = callback_func
 # --- End GUI Integration ---
+praxis_instance_for_speak: Optional['PraxisCore'] = None # To allow speak to access current AI name
 
-def speak(text_to_speak: str, text_to_log: Optional[str] = None) -> None:
+def speak(text_to_speak: str, text_to_log: Optional[str] = None, from_skill_context: bool = False) -> None:
     """Gives the AI a voice and prints the response."""
     tts_safe_text = str(text_to_speak)
     log_safe_text = str(text_to_log if text_to_log is not None else tts_safe_text)
-    ai_console_name = "Praxis"
+    # Determine AI name: if called from skill context and instance exists, use its name, else default.
+    ai_console_name = praxis_instance_for_speak.ai_name if from_skill_context and praxis_instance_for_speak and hasattr(praxis_instance_for_speak, 'ai_name') else "Praxis"
     console_message = f"{ai_console_name}: {log_safe_text}"
 
     print(console_message) # This goes to console
@@ -69,7 +71,7 @@ def speak(text_to_speak: str, text_to_log: Optional[str] = None) -> None:
 
 class SkillContext:
     """A class to hold shared resources that skills might need."""
-    def __init__(self, speak_func, chat_session, knowledge_base_module, skills_registry: Dict[str, Callable[..., Any]], current_user_name: str, input_mode_config_ref: Dict[str, str], speech_recognition_available_flag: bool):
+    def __init__(self, speak_func, chat_session, knowledge_base_module, skills_registry: Dict[str, Callable[..., Any]], current_user_name: str, input_mode_config_ref: Dict[str, str], speech_recognition_available_flag: bool, praxis_core_ref: 'PraxisCore'):
         self._raw_speak_func = speak_func # Store the original speak function from main
         self.chat_session = chat_session
         self.is_muted = False # Initialize is_muted state
@@ -79,6 +81,11 @@ class SkillContext:
         self.kb = knowledge_base_module # Provide access to knowledge_base functions
         self.input_mode_config = input_mode_config_ref # Reference to main's input mode config
         self.speech_recognition_available = speech_recognition_available_flag # Flag for SR availability
+        self._praxis_core_ref = praxis_core_ref # Reference to PraxisCore instance for callbacks like name update
+
+    @property
+    def ai_name(self) -> str:
+        return self._praxis_core_ref.ai_name
 
     def speak(self, text_to_speak: str, text_to_log: Optional[str] = None) -> None:
         """Handles speaking output, capturing messages if muted."""
@@ -90,7 +97,7 @@ class SkillContext:
             # Do not call self._raw_speak_func, so no TTS and no console print via global speak
         else:
             # If not muted, use the normal speak function
-            self._raw_speak_func(text_to_speak, text_to_log)
+            self._raw_speak_func(text_to_speak, text_to_log, from_skill_context=True)
 
     def clear_spoken_messages_for_test(self) -> None:
         """Clears the list of captured spoken messages. Useful for isolating test assertions."""
@@ -99,6 +106,10 @@ class SkillContext:
     def get_last_spoken_message_for_test(self) -> Optional[str]:
         """Returns the last message captured during mute, or None if no messages were captured."""
         return self.spoken_messages_during_mute[-1] if self.spoken_messages_during_mute else None
+
+    def update_ai_name_globally(self, new_name: str) -> None:
+        """Callback for skills to update the AI's name in PraxisCore."""
+        self._praxis_core_ref.update_ai_name(new_name)
 
 # --- Skill Registry (populated dynamically) ---
 SKILLS: Dict[str, Callable[..., Any]] = {}
@@ -251,8 +262,10 @@ def listen_for_command(recognizer: 'sr.Recognizer', microphone: 'sr.Microphone')
 
 class PraxisCore:
     def __init__(self, gui_update_status_callback: Optional[Callable[[Dict[str, str]], None]] = None):
-        global SKILLS # Allow PraxisCore to manage the global SKILLS dictionary
+        global SKILLS, praxis_instance_for_speak # Allow PraxisCore to manage globals
+        praxis_instance_for_speak = self # Make this instance available to the global speak function
 
+        self.ai_name: str = "Praxis" # Default name, can be changed by self_naming_skill
         self.gui_update_status_callback = gui_update_status_callback
         self.is_running = True 
 
@@ -293,13 +306,20 @@ class PraxisCore:
         self.last_interaction_time: datetime = datetime.now()
         self.pending_confirmation: Optional[Dict[str, Any]] = None
 
+    def update_ai_name(self, new_name: str):
+        """Updates the AI's name and informs the user."""
+        if new_name and new_name != self.ai_name:
+            old_name = self.ai_name
+            self.ai_name = new_name
+            logging.info(f"PraxisCore: AI name updated from '{old_name}' to '{self.ai_name}'.")
+            # Speak confirmation through skill_context to use the new name
+            if self.skill_context: # Ensure skill_context is initialized
+                self.skill_context.speak(f"Understood. My designation is now {self.ai_name}.")
+            self._update_gui_status()
+
     def _update_gui_status(self, praxis_state_override: Optional[str] = None, confirmation_prompt: Optional[str] = None):
         if self.gui_update_status_callback:
             state_to_report = praxis_state_override if praxis_state_override else "Idle"
-            if self.pending_confirmation and not confirmation_prompt: # If a confirmation is pending, reflect it
-                state_to_report = "Awaiting Confirmation"
-                confirmation_prompt = self.pending_confirmation.get("prompt")
-
             status = {
                 "user": self.current_user_name if self.current_user_name else "[Not Set]",
                 "mode": self.input_mode_config['mode'],
@@ -307,6 +327,10 @@ class PraxisCore:
             }
             if confirmation_prompt:
                 status["confirmation_prompt"] = confirmation_prompt
+            elif self.pending_confirmation: # If a confirmation is pending, reflect it
+                state_to_report = "Awaiting Confirmation" 
+                status["praxis_state"] = state_to_report
+                status["confirmation_prompt"] = self.pending_confirmation.get("prompt")
             self.gui_update_status_callback(status)
 
     def initialize_user_session(self, user_name: str) -> None:
@@ -316,14 +340,6 @@ class PraxisCore:
             return
 
         self.current_user_name = user_name
-        speak(f"Welcome. I am Praxis. Initializing systems for {self.current_user_name}...") 
-        
-        existing_profile_items = self.kb.get_user_profile_items_by_category(self.current_user_name, "interest")
-        if existing_profile_items:
-            speak(f"It's good to see you again, {self.current_user_name}!")
-        else:
-            speak(f"A pleasure to meet you for the first time, {self.current_user_name}. I look forward to assisting you.")
-        logging.info(f"PraxisCore: User identified as '{self.current_user_name}'.")
 
         self.skill_context = SkillContext(
             speak_func=speak, 
@@ -332,11 +348,37 @@ class PraxisCore:
             skills_registry=self.skills_registry_ref, 
             current_user_name=self.current_user_name,
             input_mode_config_ref=self.input_mode_config,
-            speech_recognition_available_flag=SPEECH_RECOGNITION_AVAILABLE and bool(self.recognizer and self.microphone)
+            speech_recognition_available_flag=SPEECH_RECOGNITION_AVAILABLE and bool(self.recognizer and self.microphone),
+            praxis_core_ref=self 
         )
 
         failed_skill_module_tests = load_skills(self.skill_context) 
         self.available_skills_prompt_str = generate_skills_description_for_llm(SKILLS, speak)
+
+        # Attempt to load AI's chosen name after skills are loaded
+        if "get_self_name" in SKILLS:
+            try:
+                retrieved_name = SKILLS["get_self_name"](self.skill_context)
+                if retrieved_name:
+                    self.ai_name = retrieved_name # Update directly, speak confirmation handled by update_ai_name if called
+                    logging.info(f"PraxisCore: Loaded AI name '{self.ai_name}' from knowledge base.")
+                else: # No name stored yet
+                    # Optionally, trigger name selection if no name is found and skill exists
+                    # For now, just log and inform user they can set it.
+                    logging.info("PraxisCore: No AI name found in knowledge base.")
+                    if "choose_and_set_name" in SKILLS:
+                         self.skill_context.speak(f"I don't seem to have a chosen name yet. You can ask me to choose one later, sir.")
+            except Exception as e:
+                logging.error(f"PraxisCore: Error trying to get AI name during init: {e}", exc_info=True)
+
+        self.skill_context.speak(f"Welcome. I am {self.ai_name}. Initializing systems for {self.current_user_name}.")
+        
+        existing_profile_items = self.kb.get_user_profile_items_by_category(self.current_user_name, "interest")
+        if existing_profile_items:
+            self.skill_context.speak(f"It's good to see you again, {self.current_user_name}!")
+        else:
+            self.skill_context.speak(f"A pleasure to meet you for the first time, {self.current_user_name}. I look forward to assisting you.")
+        logging.info(f"PraxisCore: User identified as '{self.current_user_name}'. AI name is '{self.ai_name}'.")
 
         if "initialize_calendar_data" in SKILLS:
             logging.info("PraxisCore: Attempting to initialize calendar data...")
@@ -345,13 +387,13 @@ class PraxisCore:
             except Exception as e:
                 logging.error(f"PraxisCore: Error calling initialize_calendar_data: {e}", exc_info=True)
         
-        startup_message = f"{PRAXIS_VERSION_INFO}. Systems nominal for {self.current_user_name}."
+        startup_message = f"{PRAXIS_VERSION_INFO} ({self.ai_name}). Systems nominal for {self.current_user_name}."
         if not failed_skill_module_tests:
             startup_message += " All skill module self-tests passed."
         else:
             failed_modules_str = ", ".join(failed_skill_module_tests)
             startup_message += f" Warning: Self-test(s) failed for: {failed_modules_str}."
-        speak(startup_message)
+        self.skill_context.speak(startup_message)
         self.last_interaction_time = datetime.now()
         self._update_gui_status()
 
@@ -370,8 +412,8 @@ class PraxisCore:
         logging.info(f"User ({self.current_user_name} - {self.input_mode_config['mode']}): {user_input}")
         self._update_gui_status(praxis_state_override="Thinking...")
 
-        if user_input.lower() in ["exit", "quit", "goodbye"]:
-            speak("Goodbye.")
+        if user_input.lower() in ["exit", "quit", "goodbye", f"goodbye {self.ai_name.lower().strip()}"]:
+            self.skill_context.speak("Goodbye.")
             self.is_running = False 
             self._update_gui_status(praxis_state_override="Shutting down")
             return
@@ -382,7 +424,8 @@ class PraxisCore:
             parsed_command = process_command_with_llm(
                 command=clean_input,
                 chat_session=self.chat_session,
-                available_skills_prompt_str=self.available_skills_prompt_str
+                available_skills_prompt_str=self.available_skills_prompt_str,
+                ai_name=self.ai_name 
             )
 
             if parsed_command:
@@ -412,7 +455,7 @@ class PraxisCore:
                         )
                 elif skill_name == "speak":
                     text_for_speak_skill = args.get("text", "I'm not sure what to say.")
-                    speak(text_for_speak_skill) 
+                    self.skill_context.speak(text_for_speak_skill) 
                     self.kb.record_skill_invocation(skill_name="speak", success=True, args_used=args)
                 else:
                     self._trigger_fallback_handler(clean_input)
@@ -569,7 +612,8 @@ class PraxisCore:
             self.is_running = False # Signal threads to stop
             # Short delay to allow threads to notice the flag if they are in a loop
             time.sleep(0.1)
-            speak("PraxisCore shutting down.") # This might not be heard if GUI closes too fast
+            # Use skill_context.speak if available to use the AI's name, else global speak
+            (self.skill_context.speak if self.skill_context else speak)(f"{self.ai_name} shutting down.")
             logging.info("PraxisCore shutdown initiated.")
             self._update_gui_status(praxis_state_override="Shutdown")
 

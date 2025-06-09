@@ -65,6 +65,17 @@ def init_db():
                     PRIMARY KEY (user_name, item_category, item_key)
                 )
             """)
+
+            # Table for system-wide identity/configuration items
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS system_identity (
+                    item_category TEXT NOT NULL,
+                    item_key TEXT NOT NULL,
+                    item_value TEXT,
+                    last_updated_timestamp TEXT,
+                    PRIMARY KEY (item_category, item_key)
+                )
+            """)
             conn.commit()
             logging.info(f"KnowledgeBase: Database '{DB_NAME}' initialized successfully.")
     except sqlite3.Error as e:
@@ -415,6 +426,75 @@ def delete_user_profile_item(user_name: str, item_category: str, item_key: str) 
             return True
     except sqlite3.Error as e:
         logging.error(f"KnowledgeBase: Error deleting profile item for user '{user_name}', category '{item_category}', key '{item_key}': {e}", exc_info=True)
+        return False
+
+# --- System Identity Functions ---
+
+def store_system_identity_item(item_category: str, item_key: str, item_value: str) -> bool:
+    """
+    Stores or updates an item in the system_identity table.
+    Returns True on success, False on failure.
+    """
+    if not all([item_category, item_key]):
+        logging.error("KnowledgeBase: item_category and item_key cannot be empty for store_system_identity_item.")
+        return False
+    timestamp_now_utc = datetime.now(timezone.utc).isoformat()
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO system_identity (item_category, item_key, item_value, last_updated_timestamp)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(item_category, item_key) DO UPDATE SET
+                    item_value = excluded.item_value,
+                    last_updated_timestamp = excluded.last_updated_timestamp
+            """, (item_category, item_key, item_value, timestamp_now_utc))
+            conn.commit()
+            logging.info(f"KnowledgeBase: Stored/Updated system identity item for category '{item_category}', key '{item_key}'.")
+            return True
+    except sqlite3.Error as e:
+        logging.error(f"KnowledgeBase: Error storing system identity item for category '{item_category}', key '{item_key}': {e}", exc_info=True)
+        return False
+
+def get_system_identity_item(item_category: str, item_key: str) -> Optional[str]:
+    """
+    Retrieves a specific item_value from the system_identity table.
+    Returns the value as a string, or None if not found or an error occurs.
+    """
+    if not all([item_category, item_key]):
+        logging.error("KnowledgeBase: item_category and item_key cannot be empty for get_system_identity_item.")
+        return None
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT item_value FROM system_identity WHERE item_category = ? AND item_key = ?",
+                           (item_category, item_key))
+            row = cursor.fetchone()
+            return row['item_value'] if row else None
+    except sqlite3.Error as e:
+        logging.error(f"KnowledgeBase: Error retrieving system identity item for category '{item_category}', key '{item_key}': {e}", exc_info=True)
+        return None
+
+def delete_system_identity_item(item_category: str, item_key: str) -> bool:
+    """
+    Deletes a specific item from the system_identity table.
+    Returns True on success or if the item didn't exist, False on failure.
+    """
+    if not all([item_category, item_key]):
+        logging.error("KnowledgeBase: item_category and item_key cannot be empty for delete_system_identity_item.")
+        return False
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                DELETE FROM system_identity
+                WHERE item_category = ? AND item_key = ?
+            """, (item_category, item_key))
+            conn.commit()
+            logging.info(f"KnowledgeBase: Attempted to delete system identity item for category '{item_category}', key '{item_key}'. Rows affected: {cursor.rowcount}")
+            return True
+    except sqlite3.Error as e:
+        logging.error(f"KnowledgeBase: Error deleting system identity item for category '{item_category}', key '{item_key}': {e}", exc_info=True)
         return False
 
 
