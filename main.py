@@ -4,6 +4,7 @@ import os
 import importlib
 import inspect
 from typing import Callable, Dict, Any, Optional
+import knowledge_base # Import the new module
 
 import pyttsx3
 # Import components from our new modules
@@ -135,6 +136,9 @@ def main() -> None:
         logging.critical("AI Brain (Gemini Model) failed to initialize. Exiting.")
         return
 
+    # Initialize the KnowledgeBase database
+    knowledge_base.init_db()
+
     # Initialize chat session and skill context BEFORE loading skills
     chat_session = model.start_chat(history=[])
     # Create a context object to pass to skills
@@ -176,19 +180,42 @@ def main() -> None:
                 if skill_name in SKILLS:
                     skill_function = SKILLS[skill_name]
                     logging.info(f"Attempting to call skill: {skill_name} with args: {args}")
+                    skill_executed_successfully = False # Flag
+                    error_msg_for_kb: Optional[str] = None
                     try:
                         # Pass the context and other arguments to the skill
                         skill_function(skill_context, **args)
                         logging.info(f"Successfully called skill: {skill_name}")
-                    except Exception as skill_e: # Catch exceptions from within the skill
+                        skill_executed_successfully = True
+                    except TypeError as te: # Specifically catch TypeError for argument mismatches
+                        error_msg_for_kb = f"Argument mismatch or skill definition error: {te}"
+                        logging.error(f"Error during execution of skill '{skill_name}' due to TypeError (check arguments and skill definition): {te}", exc_info=True)
+                        skill_context.speak(f"I had trouble with the arguments for the action: {skill_name}. The developer may need to check this.")
+                        # skill_executed_successfully remains False
+                    except Exception as skill_e: # Catch other exceptions from within the skill
+                        error_msg_for_kb = str(skill_e)
                         logging.error(f"Error during execution of skill '{skill_name}' with args {args}: {skill_e}", exc_info=True)
                         skill_context.speak(f"I encountered an error while trying to perform the action: {skill_name}. Please check the logs.")
+                        # skill_executed_successfully remains False
+                    finally:
+                        # Record skill invocation in KnowledgeBase
+                        knowledge_base.record_skill_invocation(
+                            skill_name=skill_name,
+                            success=skill_executed_successfully,
+                            args_used=args,
+                            error_message=error_msg_for_kb
+                        )
                 elif skill_name == "speak":
                     # When LLM directly uses 'speak' skill, text_to_speak and text_to_log are the same.
                     text_for_speak_skill = args.get("text", "I'm not sure what to say, sir.")
                     # Call the global speak function directly here, or ensure SkillContext's speak is used if preferred.
                     # Using global speak for simplicity as it's a direct LLM 'speak' command.
                     speak(text_for_speak_skill)
+                    knowledge_base.record_skill_invocation(
+                        skill_name="speak", # Log this as a distinct action/skill
+                        success=True,
+                        args_used=args
+                    )
                 else:
                     # The LLM chose a skill that doesn't exist
                     fallback_handler(skill_context, clean_input)
