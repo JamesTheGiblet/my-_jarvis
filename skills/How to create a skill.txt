@@ -76,9 +76,44 @@ So, as long as your file is in `skills/` and your function is defined correctly,
 it will be available when you restart the assistant.
 
 ------------------------------------
-Step 5: Test Your New Skill
+Step 5: Add a Self-Test Function (Optional but Recommended)
+------------------------------------
+To ensure your skill module integrates correctly and its basic functionalities
+are working, you can add a `_test_skill(context)` function to your skill file.
+
+1.  **Define `_test_skill(context)`**:
+    *   This function should be named exactly `_test_skill` and take `context` as its
+        first argument.
+    *   The `main.py` script will automatically find and run this function at startup.
+    *   During the test, `context.speak()` calls will be "muted" (logged to `codex.log`
+        but not spoken aloud) unless the test itself fails.
+    *   The test should perform basic checks on your skill(s) in the module.
+    *   If a critical part of your test fails, `raise` an exception. This will be
+        caught by `main.py`, and a warning will be spoken.
+
+    Example `_test_skill` for `my_new_skill.py` with `roll_dice`:
+    ```python
+    # skills/my_new_skill.py
+    # ... (your roll_dice function and imports) ...
+
+    def _test_skill(context):
+        """Runs a quick self-test for the my_new_skill module."""
+        logging.info("[my_new_skill_test] Running self-test...")
+        try:
+            roll_dice(context, number_of_dice=1, sides=6) # Example call
+            logging.info("[my_new_skill_test] roll_dice executed successfully.")
+            # Add more test calls for other skills in this module if any
+        except Exception as e:
+            logging.error(f"[my_new_skill_test] Self-test FAILED: {e}", exc_info=True)
+            raise # Re-raise to signal failure to the loader
+    ```
+
+------------------------------------
+Step 6: Test Your New Skill Manually
 ------------------------------------
 1.  Run `main.py`.
+    *   Observe the logs for the output of your `_test_skill` function.
+    *   Listen for any spoken warnings if your `_test_skill` failed.
 2.  Try giving a command that should trigger your new skill.
     For the `roll_dice` example:
     "Codex, roll a dice"
