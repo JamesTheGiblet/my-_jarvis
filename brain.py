@@ -30,7 +30,10 @@ def process_command_with_llm(command, chat_session):
         1.  Analyze the user's request and the conversation history.
         2.  If the request can be fulfilled with a single tool, choose it.
         3.  If the request requires multiple steps, choose the first logical tool (like `web_search`).
-        4.  After a tool runs, its output appears in the history. In the next turn, you MUST analyze this new information. If the history contains URLs from a search, your next step is to use the `search_within_url_content` tool on the most promising URL to find the specific answer. Continue this process until the user's question is fully answered.
+        4.  After a tool like `perform_web_search` runs, its output (titles and URLs) appears in the history. Your next step should be to **ask the user** if they'd like to examine a specific link for more details, perhaps by listing the titles you found.
+        5.  If the user confirms and specifies a link (e.g., by number or title) and what they're looking for within that link, then use the `search_content_in_specific_url` tool. You will need to map their selection (e.g., "link 1") to the actual URL from the conversation history.
+        6.  If the initial search or subsequent in-page search seems to provide enough information for a direct answer, synthesize it and use the `speak` skill.
+        7.  Continue this process until the user's question is fully answered or they indicate they are satisfied.
 
         **Example Multi-Step Plan:**
 
