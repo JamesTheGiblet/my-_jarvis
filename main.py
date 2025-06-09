@@ -140,7 +140,7 @@ def main() -> None:
     # Load skills dynamically at startup, passing the context for tests
     load_skills(skill_context) 
     
-    speak("Praxis (Foundational Layer) online. Systems nominal.")
+    speak("Praxis (Phase 1 foundational architecture complete). Systems nominal.")
 
     while True:
         try:
