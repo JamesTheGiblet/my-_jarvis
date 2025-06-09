@@ -19,7 +19,10 @@ def get_date(context): # Accepts context
     context.speak(f"Today's date is {date_str}") # Uses context.speak
 
 def web_search(context, query=""): # Accepts context
-    """Performs a web search, speaks the titles of the top 3 results, and displays their URLs."""
+    """
+    Performs a web search, speaks the titles and a relevant snippet from the top 3 results,
+    and displays their URLs.
+    """
     if not query:
         context.speak("Of course, what would you like me to search for?")
         return
@@ -42,10 +45,33 @@ def web_search(context, query=""): # Accepts context
                     page_title_tag = soup.find('title')
                     page_title = page_title_tag.string.strip() if page_title_tag and page_title_tag.string else "No title found"
 
-                    # Speak the title
-                    context.speak(f"Title: {page_title}")
+                    # Extract text content for snippet generation
+                    extracted_text = soup.get_text(separator=' ', strip=True)
+                    snippet = "Snippet not available." # Default snippet
+
+                    if extracted_text.strip():
+                        # Limit text sent to LLM for snippet generation (shorter than full page analysis)
+                        max_chars_for_snippet = 7000 # Approx 1.5k-2k tokens
+                        truncated_text_for_snippet = extracted_text[:max_chars_for_snippet]
+
+                        snippet_prompt = (
+                            f"Based SOLELY on the following text extracted from the webpage [{url}], "
+                            f"provide a very concise snippet (1-2 sentences, max 50 words) that directly attempts to answer the question: '{query}'. "
+                            "If the answer is not clearly present in this excerpt, state 'Information not readily found in the summary.' "
+                            f"Do not use any prior knowledge. Extracted text:\n---\n{truncated_text_for_snippet}\n---"
+                        )
+                        try:
+                            llm_snippet_response = context.chat_session.send_message(snippet_prompt)
+                            snippet_text = llm_snippet_response.text.strip()
+                            if snippet_text:
+                                snippet = snippet_text
+                        except Exception as llm_e:
+                            logging.warning(f"LLM error during snippet generation for {url}: {llm_e}")
+                            snippet = "Could not generate snippet due to an error."
+
+                    # Speak the title and the generated snippet
+                    context.speak(f"Title: {page_title}. Snippet: {snippet}")
                     # Display the URL in the console (without TTS)
-                    # Matching the "Codex:" prefix used by the main speak function's console output
                     print(f"Codex: URL: {url}")
 
                 except requests.exceptions.RequestException as req_e:
