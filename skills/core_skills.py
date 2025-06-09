@@ -2,6 +2,8 @@
 import datetime
 # This import is necessary for the web_search function.
 # It's better to have it at the top of the file.
+from googlesearch import search
+
 def get_time(context): # Accepts context
     """Returns the current time."""
     time_str = datetime.datetime.now().strftime("%I:%M %p")
@@ -12,7 +14,30 @@ def get_date(context): # Accepts context
     date_str = datetime.datetime.now().strftime("%B %d, %Y")
     context.speak(f"Today's date is {date_str}") # Uses context.speak
 
-# web_search function has been moved to skills/advanced_web_research.py
+def web_search(context, query=""): # Accepts context
+    """Performs a web search and returns the top 3 results."""
+    if not query:
+        context.speak("Of course, what would you like me to search for?")
+        return
+    context.speak(f"Right away. Searching the web for '{query}'...")
+    try:
+        # FIX: Removed all extra keyword arguments.
+        # The function is called with only the query.
+        # The results are converted to a list, and then we take the first 3.
+        all_results = list(search(query))
+        results = all_results[:3]
+
+        if results:
+            context.speak("Here are the top results I found:")
+            for url in results:
+                context.speak(url)
+        else:
+            context.speak("I couldn't find any results for that query.")
+    except Exception as e:
+        context.speak("I'm sorry, sir. I encountered an error during the web search.")
+        print(f"Error details: {e}")
+
+
 def recall_memory(context): # Accepts context
     """Summarizes recent conversation memory (last 5 messages)."""
     if not context.chat_session.history:
