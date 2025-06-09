@@ -1,8 +1,12 @@
 # c:\Users\gilbe\Desktop\my _jarvis\skills\core_skills.py
 import datetime
+import logging # Import standard logging
 # This import is necessary for the web_search function.
 # It's better to have it at the top of the file.
 from googlesearch import search
+# Added imports for fetching and parsing web page content
+import requests
+from bs4 import BeautifulSoup
 
 def get_time(context): # Accepts context
     """Returns the current time."""
@@ -15,27 +19,48 @@ def get_date(context): # Accepts context
     context.speak(f"Today's date is {date_str}") # Uses context.speak
 
 def web_search(context, query=""): # Accepts context
-    """Performs a web search and returns the top 3 results."""
+    """Performs a web search, speaks the titles of the top 3 results, and displays their URLs."""
     if not query:
         context.speak("Of course, what would you like me to search for?")
         return
     context.speak(f"Right away. Searching the web for '{query}'...")
     try:
-        # FIX: Removed all extra keyword arguments.
-        # The function is called with only the query.
-        # The results are converted to a list, and then we take the first 3.
         all_results = list(search(query))
         results = all_results[:3]
 
         if results:
             context.speak("Here are the top results I found:")
             for url in results:
-                context.speak(url)
+                try:
+                    # Fetch page content with a user-agent and timeout
+                    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 CodexAssistant/1.0'}
+                    page_response = requests.get(url, headers=headers, timeout=10)
+                    page_response.raise_for_status() # Raise an exception for bad status codes
+
+                    # Parse HTML and extract title
+                    soup = BeautifulSoup(page_response.content, 'html.parser')
+                    page_title_tag = soup.find('title')
+                    page_title = page_title_tag.string.strip() if page_title_tag and page_title_tag.string else "No title found"
+
+                    # Speak the title
+                    context.speak(f"Title: {page_title}")
+                    # Display the URL in the console (without TTS)
+                    # Matching the "Codex:" prefix used by the main speak function's console output
+                    print(f"Codex: URL: {url}")
+
+                except requests.exceptions.RequestException as req_e:
+                    logging.warning(f"Could not fetch content from {url}. Error: {req_e}")
+                    context.speak(f"I was unable to fetch the title for one of the results.")
+                    print(f"Codex: URL: {url} (fetch error)") # Still display URL
+                except Exception as e_parse:
+                    logging.warning(f"Error processing content from {url}: {e_parse}")
+                    context.speak(f"I encountered an issue processing one of the results.")
+                    print(f"Codex: URL: {url} (processing error)") # Still display URL
         else:
             context.speak("I couldn't find any results for that query.")
     except Exception as e:
-        context.speak("I'm sorry, sir. I encountered an error during the web search.")
-        print(f"Error details: {e}")
+        logging.error(f"Web search error for query '{query}': {e}", exc_info=True)
+        context.speak(f"I'm sorry, sir. I encountered an error during the web search: {e}")
 
 
 def recall_memory(context): # Accepts context
