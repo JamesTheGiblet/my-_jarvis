@@ -131,34 +131,61 @@ def write_content_to_file(context: Any, path: str, content: str) -> None:
 def _test_skill(context: Any) -> None:
     """Tests the file manager skill operations. Called by main.py during skill loading."""
     logging.info("FileManager Skill Test: Starting...")
+    # Ensure context.speak is muted and we can capture messages for assertions
+    assert context.is_muted, "Context should be muted for _test_skill"
+    context.clear_spoken_messages_for_test()
+
     _ensure_sandbox_dir_exists() # Make sure sandbox is there for tests
+    sandbox_root = _get_sandbox_abs_path()
 
     test_dir = "test_subdir"
-    test_file = os.path.join(test_dir, "test_file.txt")
+    test_file_relative = os.path.join(test_dir, "test_file.txt")
     test_content = "Hello from Praxis sandbox!"
+    abs_test_dir = os.path.join(sandbox_root, test_dir)
+    abs_test_file = os.path.join(sandbox_root, test_file_relative)
 
-    # Test writing and creating subdirectory (implicitly via _get_sandboxed_path)
-    os.makedirs(_get_sandboxed_path(context, test_dir), exist_ok=True) # Create subdir for test
-    write_content_to_file(context, test_file, test_content)
-    
+    # Cleanup before test, in case of previous failed run
+    if os.path.exists(abs_test_file): os.remove(abs_test_file)
+    if os.path.exists(abs_test_dir): os.rmdir(abs_test_dir)
+
+    # Test 1: Create directory (implicitly by writing to a file in it)
+    # For _get_sandboxed_path to allow writing, parent dir must exist.
+    # So, we first ensure the sandbox root exists (done by _ensure_sandbox_dir_exists),
+    # then _get_sandboxed_path will check if the parent of the target file (test_subdir_for_skill_test) exists.
+    # Let's explicitly create the subdir for clarity in the test.
+    os.makedirs(abs_test_dir, exist_ok=True)
+    assert os.path.isdir(abs_test_dir), f"Test setup: Failed to create test directory {abs_test_dir}"
+
+    # Test 2: Write content to a file
+    write_content_to_file(context, test_file_relative, test_content)
+    assert os.path.exists(abs_test_file), f"File {abs_test_file} was not created by write_content_to_file."
+    with open(abs_test_file, 'r') as f:
+        assert f.read() == test_content, "File content does not match what was written."
+    assert f"Successfully wrote content to '{test_file_relative}' in the sandbox." in context.get_last_spoken_message_for_test()
+    context.clear_spoken_messages_for_test()
+
     # Test reading
-    read_file_content(context, test_file)
+    read_file_content(context, test_file_relative)
+    assert f"Content of '{test_file_relative}':\n{test_content}" in context.get_last_spoken_message_for_test()
+    context.clear_spoken_messages_for_test()
 
     # Test listing
     list_directory_contents(context, test_dir)
+    assert f"Contents of '{test_dir}':\n{os.path.basename(test_file_relative)}" in context.get_last_spoken_message_for_test()
     list_directory_contents(context, ".") # List sandbox root
+    context.clear_spoken_messages_for_test()
 
     # Test path traversal attempt (should be denied by _get_sandboxed_path)
     logging.info("FileManager Skill Test: Testing path traversal denial...")
     read_file_content(context, "../outside_file.txt") # This should be blocked and speak an error
-    
+    assert "Error: Access denied. Path is outside the designated sandbox area." in context.get_last_spoken_message_for_test()
+    context.clear_spoken_messages_for_test()
+
     # Cleanup (optional, but good for repeatable tests)
-    sandboxed_test_file = _get_sandboxed_path(context, test_file)
-    sandboxed_test_dir = _get_sandboxed_path(context, test_dir)
-    if sandboxed_test_file and os.path.exists(sandboxed_test_file):
-        os.remove(sandboxed_test_file)
-    if sandboxed_test_dir and os.path.exists(sandboxed_test_dir):
-        os.rmdir(sandboxed_test_dir) # Only if empty
+    if os.path.exists(abs_test_file):
+        os.remove(abs_test_file)
+    if os.path.exists(abs_test_dir):
+        os.rmdir(abs_test_dir)
 
     logging.info("FileManager Skill Test: Completed.")
 

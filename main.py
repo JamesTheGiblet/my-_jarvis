@@ -42,17 +42,28 @@ class SkillContext:
         self._raw_speak_func = speak_func # Store the original speak function from main
         self.chat_session = chat_session
         self.is_muted = False # Initialize is_muted state
+        self.spoken_messages_during_mute: list[str] = [] # To capture messages when muted
         self.kb = knowledge_base_module # Provide access to knowledge_base functions
 
     def speak(self, text_to_speak: str, text_to_log: Optional[str] = None) -> None:
+        """Handles speaking output, capturing messages if muted."""
+        # Determine the text to log/capture
         if self.is_muted:
             # If muted (e.g., during a skill test), only log the intended speech.
-            log_text = str(text_to_log if text_to_log is not None else text_to_speak)
-            logging.info(f"Muted Speak (from skill test): {log_text}")
+            self.spoken_messages_during_mute.append(text_to_log if text_to_log is not None else text_to_speak)
+            logging.info(f"Muted Speak (captured for test): {text_to_log if text_to_log is not None else text_to_speak}")
             # Do not call self._raw_speak_func, so no TTS and no console print via global speak
         else:
             # If not muted, use the normal speak function
             self._raw_speak_func(text_to_speak, text_to_log)
+
+    def clear_spoken_messages_for_test(self) -> None:
+        """Clears the list of captured spoken messages. Useful for isolating test assertions."""
+        self.spoken_messages_during_mute = []
+
+    def get_last_spoken_message_for_test(self) -> Optional[str]:
+        """Returns the last message captured during mute, or None if no messages were captured."""
+        return self.spoken_messages_during_mute[-1] if self.spoken_messages_during_mute else None
 
 # --- Skill Registry (populated dynamically) ---
 SKILLS: Dict[str, Callable[..., Any]] = {}
