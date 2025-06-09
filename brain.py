@@ -56,8 +56,15 @@ def process_command_with_llm(
 
         {available_skills_prompt_str}
 
-        If the request is conversational (e.g., a greeting), respond with skill 'speak'.
+        If the request is purely conversational (e.g., a greeting, a simple question like "how are you?", or a statement like "that's interesting"), respond with skill 'speak'.
         When using the 'speak' skill, provide the conversational response in the 'text' argument.
+
+        SPECIFIC INSTRUCTIONS FOR INPUT MODE:
+        - If the user explicitly asks to "switch to text input", "use text mode", "type commands", or similar phrases indicating a desire for text-based interaction, you MUST use the "set_input_mode_text" skill.
+          Example: User says "let's switch to text input" -> {{"skill": "set_input_mode_text", "args": {{}}}}
+        - If the user explicitly asks to "switch to voice input", "use voice mode", "let's talk", "speech input", "listen to me", or similar phrases indicating a desire for voice-based interaction, you MUST use the "set_input_mode_voice" skill.
+          Example: User says "switch to speech input" -> {{"skill": "set_input_mode_voice", "args": {{}}}}
+        Do NOT use the 'speak' skill to merely announce that the mode is changing if the intent is to actually change the mode. The respective skills ("set_input_mode_text", "set_input_mode_voice") will handle the necessary announcements.
 
         Respond ONLY in a single, clean JSON format like:
         {{
