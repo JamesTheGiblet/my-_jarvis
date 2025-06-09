@@ -35,6 +35,7 @@ def process_command_with_llm(command, chat_session):
         - get_time: Get the current time.
         - get_date: Get the current date.
         - web_search: Search the web. Requires a 'query' argument.
+        - search_within_url_content: Fetches content from a given URL and answers a specific query based on that content. Requires 'url_to_search' (string) and 'search_query_within_url' (string, the user's question about the page content) arguments. Use this for follow-up questions about a URL provided by web_search.
         - recall_memory: Recall the recent conversation history. Takes no arguments.
         - set_reminder: Set a reminder. Requires a 'reminder_text' argument (string).
         - get_joke: Fetches a random joke. Optional 'category_and_params' argument (string, e.g., "Programming?safe-mode", default is "Any?safe-mode").

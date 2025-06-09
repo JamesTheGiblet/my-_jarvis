@@ -40,3 +40,48 @@
 2025-06-09 17:51:19,012 - Successfully loaded skill: calculate_sine from skills.maths_tool
 2025-06-09 17:51:19,013 - Successfully loaded skill: calculate_subtract from skills.maths_tool
 2025-06-09 17:51:19,024 - Successfully loaded skill: set_reminder from skills.utility_skills
+2025-06-09 17:54:30,401 - Imported existing <module 'comtypes.gen' from 'c:\\Users\\gilbe\\Desktop\\my _jarvis\\venv\\Lib\\site-packages\\comtypes\\gen\\__init__.py'>
+2025-06-09 17:54:30,402 - Using writeable comtypes cache directory: 'c:\Users\gilbe\Desktop\my _jarvis\venv\Lib\site-packages\comtypes\gen'
+2025-06-09 17:54:30,639 - Successfully loaded skill: get_exchange_rate from skills.api_connector
+2025-06-09 17:54:30,639 - Successfully loaded skill: get_joke from skills.api_connector
+2025-06-09 17:54:30,639 - Successfully loaded skill: get_weather from skills.api_connector
+2025-06-09 17:54:30,650 - Successfully loaded skill: add_calendar_event from skills.calendar
+2025-06-09 17:54:30,650 - Successfully loaded skill: clear_all_calendar_events from skills.calendar
+2025-06-09 17:54:30,651 - Successfully loaded skill: get_calendar_current_date from skills.calendar
+2025-06-09 17:54:30,651 - Successfully loaded skill: list_all_calendar_events from skills.calendar
+2025-06-09 17:54:30,651 - Successfully loaded skill: list_calendar_events from skills.calendar
+2025-06-09 17:54:30,651 - Successfully loaded skill: remove_calendar_event from skills.calendar
+2025-06-09 17:54:30,778 - Successfully loaded skill: get_date from skills.core_skills
+2025-06-09 17:54:30,778 - Successfully loaded skill: get_time from skills.core_skills
+2025-06-09 17:54:30,778 - Successfully loaded skill: recall_memory from skills.core_skills
+2025-06-09 17:54:30,778 - Successfully loaded skill: search from skills.core_skills
+2025-06-09 17:54:30,778 - Successfully loaded skill: web_search from skills.core_skills
+2025-06-09 17:54:30,786 - Successfully loaded skill: echo_text from skills.creative_synthesizer_skill
+2025-06-09 17:54:30,786 - Successfully loaded skill: get_creative_skill_current_date from skills.creative_synthesizer_skill
+2025-06-09 17:54:30,786 - Successfully loaded skill: get_text_stats from skills.creative_synthesizer_skill
+2025-06-09 17:54:30,786 - Successfully loaded skill: summarize_creatively from skills.creative_synthesizer_skill
+2025-06-09 17:54:30,821 - Successfully loaded skill: analyze_advanced_statistics from skills.data_analysis_skill
+2025-06-09 17:54:30,821 - Successfully loaded skill: analyze_basic_statistics from skills.data_analysis_skill
+2025-06-09 17:54:30,821 - Successfully loaded skill: analyze_correlation from skills.data_analysis_skill
+2025-06-09 17:54:30,821 - Successfully loaded skill: analyze_data_complexity from skills.data_analysis_skill
+2025-06-09 17:54:30,821 - Successfully loaded skill: analyze_log_summary from skills.data_analysis_skill
+2025-06-09 17:54:30,822 - Successfully loaded skill: match_regex_in_text from skills.data_analysis_skill
+2025-06-09 17:54:30,822 - Successfully loaded skill: search_keywords_in_text from skills.data_analysis_skill
+2025-06-09 17:54:30,829 - Successfully loaded skill: list_directory_contents from skills.file_manager
+2025-06-09 17:54:30,830 - Successfully loaded skill: read_file_content from skills.file_manager
+2025-06-09 17:54:30,830 - Successfully loaded skill: write_content_to_file from skills.file_manager
+2025-06-09 17:54:30,835 - [github_skill] GITHUB_API_TOKEN not found in environment variables. Some actions may be rate-limited or fail.
+2025-06-09 17:54:30,835 - Successfully loaded skill: get_github_repo_info from skills.github_api_interaction_skill
+2025-06-09 17:54:30,835 - Successfully loaded skill: get_github_user_info from skills.github_api_interaction_skill
+2025-06-09 17:54:30,843 - Successfully loaded skill: calculate_add from skills.maths_tool
+2025-06-09 17:54:30,844 - Successfully loaded skill: calculate_cosine from skills.maths_tool
+2025-06-09 17:54:30,844 - Successfully loaded skill: calculate_divide from skills.maths_tool
+2025-06-09 17:54:30,844 - Successfully loaded skill: calculate_log from skills.maths_tool
+2025-06-09 17:54:30,844 - Successfully loaded skill: calculate_multiply from skills.maths_tool
+2025-06-09 17:54:30,844 - Successfully loaded skill: calculate_power from skills.maths_tool
+2025-06-09 17:54:30,844 - Successfully loaded skill: calculate_sine from skills.maths_tool
+2025-06-09 17:54:30,844 - Successfully loaded skill: calculate_subtract from skills.maths_tool
+2025-06-09 17:54:30,849 - Successfully loaded skill: set_reminder from skills.utility_skills
+2025-06-09 17:54:41,143 - User: what is captain americas shield made of?
+2025-06-09 17:54:42,312 - Attempting to call skill: web_search with args: {'query': "what is Captain America's shield made of?"}
+2025-06-09 17:55:06,195 - Successfully called skill: web_search

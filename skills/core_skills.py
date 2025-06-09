@@ -63,6 +63,62 @@ def web_search(context, query=""): # Accepts context
         context.speak(f"I'm sorry, sir. I encountered an error during the web search: {e}")
 
 
+def search_within_url_content(context, url_to_search: str, search_query_within_url: str):
+    """
+    Fetches content from a given URL and uses the LLM to answer a specific query based on that content.
+    """
+    if not url_to_search or not search_query_within_url:
+        context.speak("Sir, I need both a URL and a specific question to search within its content.")
+        return
+
+    context.speak(f"Understood. I will search for '{search_query_within_url}' within the content of {url_to_search}.")
+    logging.info(f"[search_within_url_content] Attempting to search '{search_query_within_url}' in URL: {url_to_search}")
+
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 CodexAssistant/1.0'}
+        page_response = requests.get(url_to_search, headers=headers, timeout=15)
+        page_response.raise_for_status()
+
+        soup = BeautifulSoup(page_response.content, 'html.parser')
+        
+        # Extract text content - this can be further refined
+        # For now, get_text() is a broad approach.
+        extracted_text = soup.get_text(separator=' ', strip=True)
+
+        if not extracted_text.strip():
+            context.speak(f"I was able to fetch the page from {url_to_search}, but I couldn't find any text content to analyze.")
+            logging.warning(f"[search_within_url_content] No text content extracted from {url_to_search}")
+            return
+
+        # Limit the amount of text sent to the LLM to avoid exceeding token limits
+        max_chars_for_llm = 15000 # Approx 3k-4k tokens, adjust as needed
+        truncated_text = extracted_text[:max_chars_for_llm]
+        if len(extracted_text) > max_chars_for_llm:
+            logging.info(f"[search_within_url_content] Truncated text from {len(extracted_text)} to {max_chars_for_llm} chars for LLM.")
+
+        context.speak("Analyzing the content. This might take a moment...")
+
+        # Construct a prompt for the LLM to answer the question based on the extracted text
+        qa_prompt = (
+            f"Based SOLELY on the following text extracted from the webpage [{url_to_search}], "
+            f"please answer the question: '{search_query_within_url}'. "
+            "If the answer is not found in the text, please state that the information is not available in the provided content. "
+            f"Do not use any prior knowledge. Extracted text:\n---\n{truncated_text}\n---"
+        )
+        
+        llm_response = context.chat_session.send_message(qa_prompt)
+        answer = llm_response.text.strip()
+        context.speak(answer)
+        logging.info(f"[search_within_url_content] LLM answer for '{search_query_within_url}' from {url_to_search}: {answer}")
+
+    except requests.exceptions.RequestException as req_e:
+        logging.error(f"[search_within_url_content] Could not fetch content from {url_to_search}. Error: {req_e}", exc_info=True)
+        context.speak(f"I'm sorry, sir. I was unable to fetch the content from {url_to_search}. Error: {req_e}")
+    except Exception as e:
+        logging.error(f"[search_within_url_content] Error processing content from {url_to_search} for query '{search_query_within_url}': {e}", exc_info=True)
+        context.speak(f"I encountered an unexpected issue while trying to find the answer within {url_to_search}.")
+
+
 def recall_memory(context): # Accepts context
     """Summarizes recent conversation memory (last 5 messages)."""
     if not context.chat_session.history:
