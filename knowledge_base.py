@@ -42,6 +42,15 @@ def init_db():
                     args_used TEXT 
                 )
             """)
+
+            # Table for general user-specific data (key-value store)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_data_store (
+                    data_key TEXT PRIMARY KEY,
+                    data_value TEXT,
+                    last_updated_timestamp TEXT
+                )
+            """)
             conn.commit()
             logging.info(f"KnowledgeBase: Database '{DB_NAME}' initialized successfully.")
     except sqlite3.Error as e:
@@ -241,6 +250,62 @@ def get_recent_skill_failures(skill_name: Optional[str] = None, limit: int = 5) 
     except sqlite3.Error as e:
         logging.error(f"KnowledgeBase: Error getting recent skill failures (skill: {skill_name}): {e}", exc_info=True)
     return results
+
+def store_user_data(data_key: str, data_value: str) -> bool:
+    """
+    Stores or updates a key-value pair in the user_data_store.
+    Returns True on success, False on failure.
+    """
+    timestamp_now_utc = datetime.now(timezone.utc).isoformat()
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO user_data_store (data_key, data_value, last_updated_timestamp)
+                VALUES (?, ?, ?)
+                ON CONFLICT(data_key) DO UPDATE SET
+                    data_value = excluded.data_value,
+                    last_updated_timestamp = excluded.last_updated_timestamp
+            """, (data_key, data_value, timestamp_now_utc))
+            conn.commit()
+            logging.info(f"KnowledgeBase: Stored/Updated user data for key '{data_key}'.")
+            return True
+    except sqlite3.Error as e:
+        logging.error(f"KnowledgeBase: Error storing user data for key '{data_key}': {e}", exc_info=True)
+        return False
+
+def get_user_data(data_key: str) -> Optional[str]:
+    """
+    Retrieves a value from the user_data_store by its key.
+    Returns the value as a string, or None if the key is not found or an error occurs.
+    """
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT data_value FROM user_data_store WHERE data_key = ?", (data_key,))
+            row = cursor.fetchone()
+            if row:
+                return row['data_value']
+            return None
+    except sqlite3.Error as e:
+        logging.error(f"KnowledgeBase: Error retrieving user data for key '{data_key}': {e}", exc_info=True)
+        return None
+
+def delete_user_data(data_key: str) -> bool:
+    """
+    Deletes a key-value pair from the user_data_store.
+    Returns True on success or if key didn't exist, False on failure.
+    """
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM user_data_store WHERE data_key = ?", (data_key,))
+            conn.commit()
+            logging.info(f"KnowledgeBase: Attempted to delete user data for key '{data_key}'. Rows affected: {cursor.rowcount}")
+            return True
+    except sqlite3.Error as e:
+        logging.error(f"KnowledgeBase: Error deleting user data for key '{data_key}': {e}", exc_info=True)
+        return False
 
 # Initialize the DB when this module is loaded (e.g., at app startup if imported early)
 # Alternatively, call init_db() explicitly from main.py

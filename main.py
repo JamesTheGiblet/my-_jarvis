@@ -1,8 +1,9 @@
 # main.py (New Orchestrator Version)
+from datetime import datetime
 import logging
 import os
 import importlib
-import inspect
+import inspect, time # Added time
 from typing import Callable, Dict, Any, Optional
 import knowledge_base # Import the new module
 
@@ -38,10 +39,11 @@ def speak(text_to_speak: str, text_to_log: Optional[str] = None) -> None:
 
 class SkillContext:
     """A class to hold shared resources that skills might need."""
-    def __init__(self, speak_func, chat_session, knowledge_base_module):
+    def __init__(self, speak_func, chat_session, knowledge_base_module, skills_registry: Dict[str, Callable[..., Any]]):
         self._raw_speak_func = speak_func # Store the original speak function from main
         self.chat_session = chat_session
         self.is_muted = False # Initialize is_muted state
+        self.skills_registry = skills_registry # Access to all loaded skills
         self.spoken_messages_during_mute: list[str] = [] # To capture messages when muted
         self.kb = knowledge_base_module # Provide access to knowledge_base functions
 
@@ -187,6 +189,9 @@ def fallback_handler(context: SkillContext, original_input: str) -> None:
         logging.error(f"Error in fallback_handler during web search confirmation: {e}", exc_info=True)
         context.speak("An unexpected error occurred while trying to process that.")
 
+# --- Configuration for Inactivity ---
+INACTIVITY_THRESHOLD_SECONDS = 300 # 5 minutes, adjust as needed
+
 def main() -> None:
     """The main function to orchestrate the AI assistant."""
     if not model:
@@ -201,7 +206,7 @@ def main() -> None:
     # Initialize chat session and skill context BEFORE loading skills
     chat_session = model.start_chat(history=[])
     # Create a context object to pass to skills
-    skill_context = SkillContext(speak, chat_session, knowledge_base)
+    skill_context = SkillContext(speak, chat_session, knowledge_base, SKILLS)
 
     # Load skills dynamically at startup, passing the context for tests
     failed_skill_module_tests = load_skills(skill_context)
@@ -227,14 +232,28 @@ def main() -> None:
         startup_message += f" Warning: The self-test for the following skill module(s) failed: {failed_modules_str}. Please investigate the logs."
     speak(startup_message)
 
+    last_interaction_time = datetime.now()
+
     while True:
         try:
+            # Check for inactivity BEFORE asking for input
+            current_time = datetime.now()
+            if (current_time - last_interaction_time).total_seconds() > INACTIVITY_THRESHOLD_SECONDS:
+                # This is a simple check. A more sophisticated system might use
+                # non-blocking input or a separate thread for continuous monitoring.
+                skill_context.speak("It's been a while, sir. Is there anything I can assist you with?")
+                last_interaction_time = current_time # Reset timer after asking to avoid immediate re-trigger
+
             user_input = input("You: ").strip()
             if not user_input:
+                # If user just hits Enter, we don't treat it as a full interaction for resetting the timer,
+                # but we also don't want to immediately re-prompt for inactivity if they are just pausing.
+                # For now, an empty input will not reset last_interaction_time, allowing the inactivity prompt
+                # to trigger if they remain idle after hitting Enter.
                 continue
 
+            last_interaction_time = datetime.now() # Reset on any valid input from the user
             logging.info(f"User: {user_input}")
-
             if user_input.lower() in ["exit", "quit", "goodbye"]:
                 speak("Goodbye, sir.")
                 break
