@@ -211,12 +211,38 @@ Example Formats:
         # If prompt_tokens was calculated, it's preserved. response_tokens defaults to 0 here.
         return None, prompt_tokens if 'prompt_tokens' in locals() else 0, 0
 
+def retrieve_relevant_context_for_rag(problem_description: str) -> Optional[str]:
+    """
+    Placeholder for RAG: Retrieves relevant context from a knowledge base.
+    In a real implementation, this would query a vector database or other
+    knowledge source based on the problem_description.
+
+    Args:
+        problem_description (str): The description of the coding problem.
+
+    Returns:
+        Optional[str]: A string containing relevant context, or None if no context is found.
+    """
+    # --- Placeholder RAG Logic ---
+    # Example: If the problem description mentions "file I/O" or "read file",
+    # you might return a common file reading snippet or API doc link.
+    context_snippets = []
+    if "file" in problem_description.lower() and ("read" in problem_description.lower() or "write" in problem_description.lower()):
+        context_snippets.append("# Example: Reading a file\n# with open('filename.txt', 'r') as f:\n#     content = f.read()")
+    if "api" in problem_description.lower() and "fetch" in problem_description.lower():
+        context_snippets.append("# Remember to handle API request exceptions and check response status codes.")
+    
+    if context_snippets:
+        return "\n\nRelevant Context/Examples:\n---\n" + "\n---\n".join(context_snippets) + "\n---"
+    return None
 
 def generate_code_with_llm(
     problem_description: str,
     model: Optional['GenerativeModel'] = None,
     ai_name: str = "CodingAssistant", # Different persona for direct code gen
-    attempt_number: int = 1 # New parameter for retry awareness
+    attempt_number: int = 1, # New parameter for retry awareness
+    previous_code: Optional[str] = None, # For test & repair loop
+    error_message: Optional[str] = None  # For test & repair loop
 ) -> Tuple[Optional[str], int, int]:
 
     """
@@ -227,8 +253,21 @@ def generate_code_with_llm(
     
     retry_prefix = ""
     if attempt_number > 1:
-        retry_prefix = f"This is attempt number {attempt_number}. Your previous attempt was not successful. Please review the problem carefully and provide a correct and complete Python solution.\n\n"
-
+        if previous_code and error_message:
+            # Specific message for repairing code with error context
+            retry_prefix = (
+                f"This is attempt number {attempt_number}. "
+                "Your previous code generation attempt resulted in the following code:\n"
+                f"```python\n{previous_code}\n```\n"
+                f"When tested, this code produced the error: '{error_message}'.\n\n"
+                "Please analyze the original problem description (provided below), the faulty code, and the error message. "
+                "Then, provide a corrected and complete Python solution. Ensure your response is ONLY the Python code block.\n\n"
+            )
+        else: # General retry message if no specific error/code from previous attempt
+            retry_prefix = (
+                f"This is attempt number {attempt_number}. Your previous attempt was not successful. "
+                "Please review the problem carefully and provide a correct and complete Python solution.\n\n"
+            )
     prompt = f"""
 {retry_prefix}You are {ai_name}, an expert AI coding assistant.
 Your task is to write a Python solution for the given problem.
@@ -246,8 +285,14 @@ def solve(...):
 Problem Description:
 ---
 {problem_description}
----
+"""
+    # --- RAG Integration ---
+    rag_context = retrieve_relevant_context_for_rag(problem_description)
+    if rag_context:
+        prompt += f"\n{rag_context}\n"
+    # --- End RAG Integration ---
 
+    prompt += """
 Python Code Block:
 """
     prompt_tokens = 0
