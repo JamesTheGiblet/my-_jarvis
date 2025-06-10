@@ -22,3 +22,9 @@ try:
 
 except Exception as e:
     print(f"Error configuring Google AI: {e}")
+    
+# Rate Limits for Gemini 1.5 Flash (as of documentation when this was added)
+# These are for reference and potential client-side checks, actual limits are enforced by the API.
+GEMINI_1_5_FLASH_RPM = 15  # Requests Per Minute
+GEMINI_1_5_FLASH_TPM = 1000000  # Tokens Per Minute
+GEMINI_1_5_FLASH_RPD = 1500 # Requests Per Day

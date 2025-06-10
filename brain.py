@@ -105,6 +105,9 @@ def process_command_with_llm(
         JSON Response:
     """
 
+    # Note: Rate limits for the model are defined in config.py (e.g., GEMINI_1_5_FLASH_RPM, GEMINI_1_5_FLASH_TPM).
+    # If client-side rate limiting is needed, logic would be added here or in the calling function (PraxisCore)
+    # before sending the message.
     try:
         response = chat_session.send_message(prompt)
         return extract_json(response.text)

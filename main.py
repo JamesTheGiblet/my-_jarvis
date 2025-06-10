@@ -20,7 +20,7 @@ except ImportError:
     print("To enable voice input, please install SpeechRecognition and PyAudio: pip install SpeechRecognition PyAudio")
 from config import model
 from brain import process_command_with_llm, strip_wake_words
-
+from config import GEMINI_1_5_FLASH_RPM, GEMINI_1_5_FLASH_TPM, GEMINI_1_5_FLASH_RPD # Import rate limit constants for reference
 # Setup basic logging
 logging.basicConfig(filename='codex.log', level=logging.INFO, format='%(asctime)s - %(message)s')
 
@@ -300,6 +300,10 @@ class PraxisCore:
         self.current_user_name: str = ""
         self.chat_session = model.start_chat(history=[])
         
+        # Note: Rate limits for the configured model (Gemini 1.5 Flash) are available in config.py:
+        # RPM: GEMINI_1_5_FLASH_RPM, TPM: GEMINI_1_5_FLASH_TPM, RPD: GEMINI_1_5_FLASH_RPD
+        # These constants can be used here or passed to SkillContext if client-side rate limiting is implemented.
+
         SKILLS = {} 
         self.skills_registry_ref = SKILLS
 
