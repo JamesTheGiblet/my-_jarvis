@@ -743,10 +743,15 @@ class PraxisCore:
                     llm_confidence=0.0, llm_warnings=["LLM response parsing failed"],
                     ai_final_response_summary=self.last_ai_response_summary_for_feedback
                 )
+        except (AttributeError, NameError, ImportError) as e_code_integrity:
+            # These errors might indicate an inconsistent state, possibly due to live updates
+            logging.error(f"PraxisCore: Potential code integrity issue in process_command_text: {e_code_integrity}", exc_info=True)
+            speak("I've encountered a critical internal error, possibly due to a recent system update. Please check the logs. I may need to be restarted.")
+            self.last_ai_response_summary_for_feedback = "Critical internal error (possible update issue)."
         except Exception as e:
             logging.error(f"PraxisCore: Critical error in process_command_text: {e}", exc_info=True)
-            speak("A critical error occurred while processing your command.")
-            self.last_ai_response_summary_for_feedback = "Critical error in command processing."
+            speak("A critical error occurred while processing your command. Please check the logs.")
+            self.last_ai_response_summary_for_feedback = "Critical error in command processing (general)."
         finally:
             self._update_gui_status(enable_feedback_buttons=(self.last_interaction_id_for_feedback is not None))
 
