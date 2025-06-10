@@ -132,55 +132,61 @@ def load_skills(skill_context: SkillContext, skills_directory: str = "skills") -
     """
     global SKILLS
     failed_module_tests: list[str] = []
+    SKILLS = {} # Clear existing skills before loading
+
     if not os.path.isdir(skills_directory):
         logging.warning(f"Skills directory '{skills_directory}' not found. No custom skills loaded.")
         return failed_module_tests
 
-    # Ensure the skills directory is treated as a package by having __init__.py
-    for filename in os.listdir(skills_directory):
-        if filename.endswith(".py") and not filename.startswith("_"):
-            module_name_short = filename[:-3]
-            module_name_full = f"{skills_directory}.{module_name_short}"
-            try:
-                module = importlib.import_module(module_name_full)
-                has_test_function = hasattr(module, "_test_skill")
+    # Walk through the skills directory and its subdirectories
+    for root, _, files in os.walk(skills_directory):
+        # Create the package path relative to the skills directory
+        # e.g., skills/abilities -> skills.abilities
+        relative_root = os.path.relpath(root, skills_directory).replace(os.sep, '.')
+        package_prefix = f"{skills_directory}.{relative_root}" if relative_root != '.' else skills_directory
 
-                for attribute_name in dir(module):
-                    attribute = getattr(module, attribute_name)
-                    if inspect.isfunction(attribute) and not attribute_name.startswith("_"):
-                        # Exclude _test_skill itself from being registered as a callable skill
-                        if attribute_name == "_test_skill":
-                            continue
-                        SKILLS[attribute_name] = attribute
-                        logging.info(f"Successfully loaded skill: {attribute_name} from {module_name_full}")
+        for filename in files:
+            if filename.endswith(".py") and not filename.startswith("_"):
+                module_name_short = filename[:-3]
+                module_name_full = f"{package_prefix}.{module_name_short}"
                 
-                if has_test_function:
-                    logging.info(f"Found _test_skill in {module_name_full}. Running test...")
-                    test_function: Callable[[SkillContext], None] = getattr(module, "_test_skill")
+                try:
+                    # Import the module using its full package path
+                    module = importlib.import_module(module_name_full)
+                    has_test_function = hasattr(module, "_test_skill")
 
-                    original_mute_state = skill_context.is_muted  # Save current mute state
-                    skill_context.is_muted = True  # Mute context for the duration of the test
-                    test_passed = False
-                    try:
-                        # Pass the skill_context to the test function
-                        test_function(skill_context) 
-                        logging.info(f"SUCCESS: _test_skill for {module_name_full} passed.")
-                        test_passed = True
-                    except Exception as test_e:
-                        logging.error(f"FAILURE: _test_skill for {module_name_full} failed: {test_e}", exc_info=True)
-                        # test_passed remains False
-                    finally:
-                        skill_context.is_muted = original_mute_state # Restore original mute state
+                    for attribute_name in dir(module):
+                        attribute = getattr(module, attribute_name)
+                        if inspect.isfunction(attribute) and not attribute_name.startswith("_"):
+                            # Exclude _test_skill itself from being registered as a callable skill
+                            if attribute_name == "_test_skill":
+                                continue
+                            SKILLS[attribute_name] = attribute
+                            logging.info(f"Successfully loaded skill: {attribute_name} from {module_name_full}")
+                    
+                    if has_test_function:
+                        logging.info(f"Found _test_skill in {module_name_full}. Running test...")
+                        test_function: Callable[[SkillContext], None] = getattr(module, "_test_skill")
 
-                    if not test_passed:
-                        # Speak a warning if a self-test fails
-                        # This speak call uses the restored mute state, so it will be audible.
-                        failed_module_tests.append(module_name_short)
-                        skill_context.speak(f"Warning: Self-test for skills in {module_name_short} module failed. Please check the logs.")
-            except ImportError as e:
-                logging.error(f"Failed to import module {module_name_full}: {e}")
-            except Exception as e:
-                logging.error(f"Error loading skill from {module_name_full}: {e}")
+                        original_mute_state = skill_context.is_muted  # Save current mute state
+                        skill_context.is_muted = True  # Mute context for the duration of the test
+                        test_passed = False
+                        try:
+                            test_function(skill_context) 
+                            logging.info(f"SUCCESS: _test_skill for {module_name_full} passed.")
+                            test_passed = True
+                        except Exception as test_e:
+                            logging.error(f"FAILURE: _test_skill for {module_name_full} failed: {test_e}", exc_info=True)
+                        finally:
+                            skill_context.is_muted = original_mute_state # Restore original mute state
+
+                        if not test_passed:
+                            failed_module_tests.append(module_name_full) # Use full name for clarity
+                            skill_context.speak(f"Warning: Self-test for skills in {module_name_full} module failed. Please check the logs.")
+                except ImportError as e:
+                    logging.error(f"Failed to import module {module_name_full}: {e}")
+                except Exception as e:
+                    logging.error(f"Error loading skill from {module_name_full}: {e}")
     return failed_module_tests
 
 def generate_skills_description_for_llm(skills_from_files: Dict[str, Callable[..., Any]], global_speak_func: Callable) -> str:
