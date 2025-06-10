@@ -183,19 +183,24 @@ class PraxisGUI:
         if self.praxis_core:
             self.add_message_to_response_area_thread_safe("GUI closing. Shutting down Praxis Core...", "System")
             
-            # Define a function to destroy the root after a delay
-            def delayed_destroy():
-                if self.root.winfo_exists():
-                    self.root.destroy()
-
             # Start core shutdown in a separate thread
             shutdown_thread = threading.Thread(target=self.praxis_core.shutdown, daemon=True)
             shutdown_thread.start()
             
-            # Schedule the window destruction.
-            # This allows the shutdown thread to run and potentially send its last messages
-            # via the GUI callback (which uses root.after).
-            self.root.after(750, delayed_destroy) 
+            # New function to check if shutdown_thread is done, then destroy root
+            def check_shutdown_complete_and_destroy():
+                if not shutdown_thread.is_alive(): # Check if the shutdown thread has finished
+                    if self.root.winfo_exists():
+                        self.root.destroy()
+                elif self.root.winfo_exists(): # If not finished and root still exists, check again
+                    self.root.after(100, check_shutdown_complete_and_destroy) # Check again in 100ms
+                else: # Root was destroyed by other means, stop checking
+                    pass
+
+            # Schedule the first check
+            if self.root.winfo_exists():
+                self.root.after(100, check_shutdown_complete_and_destroy)
+            # The fixed delay self.root.after(750, delayed_destroy) is removed.
         else:
             if self.root.winfo_exists():
                 self.root.destroy()
