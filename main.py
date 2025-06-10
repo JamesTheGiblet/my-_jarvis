@@ -368,7 +368,7 @@ class PraxisCore:
         
         final_startup_message = startup_message_base
         if not self.failed_skill_module_tests_ref:
-            final_startup_message += " All skill module self-tests passed."
+            final_startup_message += " All skill module self-tests passed"
         else:
             failed_modules_str = ", ".join(self.failed_skill_module_tests_ref)
             final_startup_message += f" Warning: Self-test(s) failed for: {failed_modules_str}."
