@@ -1,0 +1,81 @@
+# .github/workflows/praxis_evaluation.yml
+name: Praxis CIQ/CEQ Evaluation
+
+on:
+  push:
+    branches: [ main, develop ] # Or your primary branches
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest # Or windows-latest if preferred/needed
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v3
+      with:
+        python-version: '3.11' # Match your project's Python version
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # Assuming you have a requirements.txt or list dependencies here
+        # pip install -r requirements.txt
+        # Example dependencies based on your project:
+        pip install google-generativeai pyttsx3 SpeechRecognition nltk python-dotenv requests
+        # Download NLTK data if needed by your sentiment analysis
+        python -m nltk.downloader vader_lexicon punkt # Add 'punkt' if not already downloaded by VADER
+
+    - name: Run CIQ Evaluation
+      id: ciq_eval
+      run: |
+        echo "--- CIQ Evaluation Output ---" > ciq_report.txt
+        python evaluate_ciq.py >> ciq_report.txt
+        echo "--- End CIQ Evaluation Output ---" >> ciq_report.txt
+        # Optional: Extract key score if evaluate_ciq.py prints it in a parsable way
+        # For example, if it prints "Overall CIQ Score: XX.YY%"
+        # score=$(grep "Overall CIQ Score:" ciq_report.txt | awk '{print $4}')
+        # echo "::set-output name=ciq_score::$score"
+
+    - name: Run CEQ Evaluation (Capture AI Responses)
+      id: ceq_eval
+      run: |
+        echo "--- CEQ Evaluation - AI Responses ---" > ceq_ai_responses.txt
+        # evaluate_ceq.py is interactive for scoring.
+        # In CI, we can't do manual scoring directly.
+        # So, we'll run it in a way that it processes prompts and outputs AI responses.
+        # This might require a non-interactive mode for evaluate_ceq.py or
+        # simply capturing its stdout if it prints prompts and responses before asking for scores.
+        # For now, let's assume it prints prompts and AI responses that can be captured.
+        # You might need to adapt evaluate_ceq.py to support a non-interactive "capture" mode.
+        echo "Note: CEQ scoring is a manual process. This step captures AI responses for offline review." >> ceq_ai_responses.txt
+        # Example: If evaluate_ceq.py can be run non-interactively to just output:
+        # python evaluate_ceq.py --capture-responses >> ceq_ai_responses.txt
+        # For now, we'll just acknowledge its manual nature in the artifact.
+        echo "CEQ evaluation script 'evaluate_ceq.py' requires manual scoring." >> ceq_ai_responses.txt
+        echo "The script would typically be run locally for interactive scoring." >> ceq_ai_responses.txt
+        echo "AI responses to CEQ prompts would be reviewed based on the output of 'evaluate_ceq.py' when run." >> ceq_ai_responses.txt
+
+
+    - name: Upload CIQ Report Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: ciq-evaluation-report
+        path: ciq_report.txt
+
+    - name: Upload CEQ AI Responses Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: ceq-ai-responses-for-review
+        path: ceq_ai_responses.txt
+
+    # Optional: Fail the workflow if CIQ score drops below a threshold (more advanced)
+    # - name: Check CIQ Score
+    #   if: steps.ciq_eval.outputs.ciq_score < '70.00%' # Example threshold
+    #   run: |
+    #     echo "CIQ score is below threshold!"
+    #     exit 1
