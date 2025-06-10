@@ -3,13 +3,13 @@ name: Praxis CIQ/CEQ Evaluation
 
 on:
   push:
-    branches: [ main, develop ] # Or your primary branches
+    branches: [ main, develop ] # Or your primary development branches
   pull_request:
     branches: [ main, develop ]
 
 jobs:
   evaluate:
-    runs-on: ubuntu-latest # Or windows-latest if preferred/needed
+    runs-on: ubuntu-latest # Or windows-latest if your environment requires it
 
     steps:
     - name: Checkout repository
@@ -18,17 +18,123 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v3
       with:
-        python-version: '3.11' # Match your project's Python version
+        python-version: '3.11' # Use your project's Python version
 
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        # Assuming you have a requirements.txt or list dependencies here
+        # Assuming you have a requirements.txt, use that:
         # pip install -r requirements.txt
-        # Example dependencies based on your project:
+        # Otherwise, list your core dependencies:
         pip install google-generativeai pyttsx3 SpeechRecognition nltk python-dotenv requests
-        # Download NLTK data if needed by your sentiment analysis
-        python -m nltk.downloader vader_lexicon punkt # Add 'punkt' if not already downloaded by VADER
+
+    - name: Download NLTK data
+      run: |
+        # Download necessary NLTK data for sentiment analysis if not already cached
+        python -m nltk.downloader vader_lexicon punkt
+
+    # Step to retrieve the previous CIQ score artifact from the target branch
+    # This requires the 'actions/github-script' action and the GitHub API
+    - name: Retrieve previous CIQ score artifact
+      id: get_previous_ciq
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const { owner, repo } = context.repo;
+          const workflow_id = context.workflow; // Get the ID of the current workflow
+          // Determine the target branch: base branch for PRs, or current branch for pushes
+          const branch = context.payload.pull_request ? context.payload.pull_request.base.ref : context.ref.replace('refs/heads/', '');
+
+          console.log(`Attempting to find latest successful run for workflow ID ${workflow_id} on branch ${branch}`);
+
+          // Find the latest successful run on the target branch
+          const runs = await github.rest.actions.listWorkflowRuns({
+            owner,
+            repo,
+            workflow_id,
+            branch,
+            status: 'success',
+            per_page: 1
+          });
+
+          if (runs.data.workflow_runs.length === 0) {
+            console.log('No previous successful runs found on the target branch.');
+            core.setOutput('previous_ciq_score_found', 'false');
+            return;
+          }
+
+          const previousRun = runs.data.workflow_runs[0];
+          console.log(`Found previous successful run: ${previousRun.id} on branch ${previousRun.head_branch}`);
+
+          // List artifacts for the previous run
+          const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+            owner,
+            repo,
+            run_id: previousRun.id,
+          });
+
+          const ciqArtifact = artifacts.data.artifacts.find(artifact => artifact.name === 'ciq-evaluation-report');
+
+          if (!ciqArtifact) {
+            console.log('Previous run did not have the ciq-evaluation-report artifact.');
+            core.setOutput('previous_ciq_score_found', 'false');
+            return;
+          }
+
+          console.log(`Found CIQ artifact: ${ciqArtifact.name} (ID: ${ciqArtifact.id})`);
+
+          // Download the artifact
+          const download = await github.rest.actions.downloadArtifact({
+            owner,
+            repo,
+            artifact_id: ciqArtifact.id,
+            archive_format: 'zip',
+          });
+
+          // Extract the artifact content (it's a zip file)
+          const fs = require('fs').promises;
+          const path = require('path');
+          const AdmZip = require('adm-zip'); // Need to install this dependency in the runner
+
+          try {
+            const zip = new AdmZip(Buffer.from(download.data));
+            const entries = zip.getEntries();
+
+            // Assuming the report file is named ciq_report.txt inside the zip
+            const reportEntry = entries.find(entry => entry.entryName === 'ciq_report.txt');
+
+            if (!reportEntry) {
+               console.log('ciq_report.txt not found inside the artifact zip.');
+               core.setOutput('previous_ciq_score_found', 'false');
+               return;
+            }
+
+            const reportContent = zip.readAsText(reportEntry);
+            console.log('Previous CIQ report content:');
+            console.log(reportContent);
+
+            # Extract the score from the content (assuming "Overall CIQ Score: XX.YY%")
+            const scoreMatch = reportContent.match(/Overall CIQ Score: (\d+\.\d+)%/);
+            if (scoreMatch && scoreMatch[1]) {
+              const previousScore = parseFloat(scoreMatch[1]);
+              console.log(`Extracted previous CIQ score: ${previousScore}`);
+              core.setOutput('previous_ciq_score', previousScore);
+              core.setOutput('previous_ciq_score_found', 'true');
+            } else {
+              console.log('Could not extract previous CIQ score from artifact content.');
+              core.setOutput('previous_ciq_score_found', 'false');
+            }
+          } catch (error) {
+             console.error('Error processing downloaded artifact:', error);
+             core.setOutput('previous_ciq_score_found', 'false');
+          }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Need to add node dependency for AdmZip
+      - name: Install AdmZip
+        # Only run if the previous CIQ score artifact was potentially found (to avoid npm install if not needed)
+        if: steps.get_previous_ciq.outputs.previous_ciq_score_found != 'false'
+        run: npm install adm-zip
 
     - name: Run CIQ Evaluation
       id: ciq_eval
@@ -36,29 +142,44 @@ jobs:
         echo "--- CIQ Evaluation Output ---" > ciq_report.txt
         python evaluate_ciq.py >> ciq_report.txt
         echo "--- End CIQ Evaluation Output ---" >> ciq_report.txt
-        # Optional: Extract key score if evaluate_ciq.py prints it in a parsable way
-        # For example, if it prints "Overall CIQ Score: XX.YY%"
-        # score=$(grep "Overall CIQ Score:" ciq_report.txt | awk '{print $4}')
-        # echo "::set-output name=ciq_score::$score"
+        # Extract the new score from the last line of the summary
+        new_score=$(grep "Overall CIQ Score:" ciq_report.txt | awk '{print $4}' | sed 's/%//')
+        echo "::set-output name=new_ciq_score::$new_score"
+        echo "New CIQ Score: $new_score" # Also print to log
+
+    - name: Compare CIQ Scores and Report
+      # Only run this step if a previous CIQ score was successfully retrieved
+      if: steps.get_previous_ciq.outputs.previous_ciq_score_found == 'true'
+      run: |
+        previous_score=${{ steps.get_previous_ciq.outputs.previous_ciq_score }}
+        new_score=${{ steps.ciq_eval.outputs.new_ciq_score }}
+        # Use 'bc -l' for floating-point arithmetic comparison
+        difference=$(awk "BEGIN { print $new_score - $previous_score }")
+
+        echo "Previous CIQ Score: $previous_score%"
+        echo "New CIQ Score: $new_score%"
+        echo "Difference: $difference%"
+
+        if (( $(echo "$difference > 0" | bc -l) )); then
+          echo "::notice title=CIQ Improvement::CIQ score improved by ${difference}%. New score: ${new_score}%"
+        elif (( $(echo "$difference < 0" | bc -l) )); then
+          echo "::warning title=CIQ Regression::CIQ score regressed by ${difference}%. New score: ${new_score}%"
+        else
+          echo "CIQ score remained unchanged at ${new_score}%."
+        fi
 
     - name: Run CEQ Evaluation (Capture AI Responses)
       id: ceq_eval
       run: |
         echo "--- CEQ Evaluation - AI Responses ---" > ceq_ai_responses.txt
-        # evaluate_ceq.py is interactive for scoring.
-        # In CI, we can't do manual scoring directly.
-        # So, we'll run it in a way that it processes prompts and outputs AI responses.
-        # This might require a non-interactive mode for evaluate_ceq.py or
-        # simply capturing its stdout if it prints prompts and responses before asking for scores.
-        # For now, let's assume it prints prompts and AI responses that can be captured.
-        # You might need to adapt evaluate_ceq.py to support a non-interactive "capture" mode.
         echo "Note: CEQ scoring is a manual process. This step captures AI responses for offline review." >> ceq_ai_responses.txt
-        # Example: If evaluate_ceq.py can be run non-interactively to just output:
+        echo "The script 'evaluate_ceq.py' would typically be run locally for interactive scoring." >> ceq_ai_responses.txt
+        # To actually capture responses, you would need to modify evaluate_ceq.py
+        # to have a non-interactive mode (e.g., activated by a command-line argument like --capture-responses)
+        # that runs through the prompts, gets the AI responses, and prints them to standard output
+        # without waiting for manual input.
+        # Example (assuming evaluate_ceq.py supports --capture-responses):
         # python evaluate_ceq.py --capture-responses >> ceq_ai_responses.txt
-        # For now, we'll just acknowledge its manual nature in the artifact.
-        echo "CEQ evaluation script 'evaluate_ceq.py' requires manual scoring." >> ceq_ai_responses.txt
-        echo "The script would typically be run locally for interactive scoring." >> ceq_ai_responses.txt
-        echo "AI responses to CEQ prompts would be reviewed based on the output of 'evaluate_ceq.py' when run." >> ceq_ai_responses.txt
 
 
     - name: Upload CIQ Report Artifact
@@ -73,9 +194,15 @@ jobs:
         name: ceq-ai-responses-for-review
         path: ceq_ai_responses.txt
 
-    # Optional: Fail the workflow if CIQ score drops below a threshold (more advanced)
-    # - name: Check CIQ Score
-    #   if: steps.ciq_eval.outputs.ciq_score < '70.00%' # Example threshold
+    # Optional: Fail the workflow if CIQ score drops below a certain threshold
+    # - name: Check for significant CIQ Regression
+    #   if: steps.get_previous_ciq.outputs.previous_ciq_score_found == 'true' && success() # Only check if previous score found and previous steps succeeded
     #   run: |
-    #     echo "CIQ score is below threshold!"
-    #     exit 1
+    #     previous_score=${{ steps.get_previous_ciq.outputs.previous_ciq_score }}
+    #     new_score=${{ steps.ciq_eval.outputs.new_ciq_score }}
+    #     # Check if the new score is more than 5 points lower than the previous score (example threshold)
+    #     if (( $(echo "$new_score < ($previous_score - 5.0)" | bc -l) )); then
+    #       echo "::error title=Significant CIQ Regression::CIQ score dropped significantly! Previous: ${previous_score}%, New: ${new_score}%"
+    #       exit 1
+    #     fi
+
