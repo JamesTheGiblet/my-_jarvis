@@ -1,4 +1,4 @@
-# skills/system_control_skill.py
+# abilties/system_control_skill.py
 import logging
 from typing import Any
 
