@@ -7,6 +7,7 @@ import random
 import inspect, time
 from typing import Callable, Dict, Any, Optional
 import threading # For voice input thread
+import queue # For TTS queue
 from collections import deque # For rate limiting queues
 import knowledge_base # Import the new module
 
@@ -35,9 +36,11 @@ logging.basicConfig(filename='codex.log', level=logging.INFO, format='%(asctime)
 # --- Global Components ---
 try:
     engine = pyttsx3.init()
+    TTS_ENGINE_AVAILABLE = True
 except Exception as e:
     print(f"Failed to initialize TTS engine: {e}")
     engine = None
+    TTS_ENGINE_AVAILABLE = False
 
 # --- Constants ---
 INACTIVITY_THRESHOLD_SECONDS = 300 # 5 minutes, adjust as needed - Made global for GUI access
@@ -45,6 +48,10 @@ PRAXIS_VERSION_INFO = "Praxis (Phase 4 GUI Integration)"
 DEFAULT_AI_NAME = "Praxis" # Default name for the AI
 
 # --- GUI Integration: Callback for speak ---
+tts_queue = queue.Queue() # Queue for TTS requests
+TTS_SHUTDOWN_SENTINEL = object() # Sentinel object to signal TTS worker to stop
+tts_worker_thread_instance: Optional[threading.Thread] = None
+
 gui_output_callback: Optional[Callable[[str], None]] = None
 
 def set_gui_output_callback(callback_func: Callable[[str], None]) -> None:
@@ -54,16 +61,39 @@ def set_gui_output_callback(callback_func: Callable[[str], None]) -> None:
 # --- End GUI Integration ---
 praxis_instance_for_speak: Optional['PraxisCore'] = None # To allow speak to access current AI name
 
-def _speak_in_thread(tts_text: str, ai_name: str):
-    """Helper function to run TTS in a separate thread."""
-    if engine:
+def tts_worker():
+    """Processes TTS requests from a queue in a dedicated thread."""
+    logging.info("TTS worker thread started.")
+    while TTS_ENGINE_AVAILABLE and engine: # Ensure engine is still valid
         try:
-            engine.say(tts_text)
-            engine.runAndWait()
-        except Exception as e:
-            warning_message = f"{ai_name} Warning: Text-to-speech failed in thread. {e}"
-            print(warning_message)
-            # No GUI callback here, as the main speak function already handled the log message
+            item = tts_queue.get() # Blocks until an item is available
+            if item is TTS_SHUTDOWN_SENTINEL:
+                logging.info("TTS_SHUTDOWN_SENTINEL received. TTS worker thread stopping.")
+                tts_queue.task_done()
+                break
+            
+            tts_text = str(item) # Ensure it's a string
+            current_ai_name = praxis_instance_for_speak.ai_name if praxis_instance_for_speak else DEFAULT_AI_NAME
+
+            try:
+                engine.say(tts_text)
+                engine.runAndWait()
+            except RuntimeError as re_tts:
+                # This specific error is what we are trying to avoid.
+                # If it still happens, it's a deeper issue or rapid re-initialization.
+                logging.error(f"TTS Worker: pyttsx3 runtime error (e.g., loop already started) for text '{tts_text[:30]}...'. Error: {re_tts}", exc_info=True)
+                # Attempting to recover by re-initializing might be risky here. Best to log and skip.
+            except Exception as e_tts:
+                warning_message = f"{current_ai_name} Warning: Text-to-speech failed in worker. Text: '{tts_text[:30]}...'. Error: {e_tts}"
+                print(warning_message)
+                if gui_output_callback: gui_output_callback(warning_message)
+                logging.error(f"TTS Worker: Exception during pyttsx3 operation: {e_tts}", exc_info=True)
+            finally:
+                tts_queue.task_done() # Signal that this task is done
+        except Exception as e_queue:
+            logging.error(f"TTS Worker: Error in main loop: {e_queue}", exc_info=True)
+            if isinstance(e_queue, (KeyboardInterrupt, SystemExit)): break
+    logging.info("TTS worker thread finished.")
 
 def speak(text_to_speak: str, text_to_log: Optional[str] = None, from_skill_context: bool = False) -> None:
     """Gives the AI a voice and prints the response."""
@@ -79,10 +109,8 @@ def speak(text_to_speak: str, text_to_log: Optional[str] = None, from_skill_cont
     if gui_output_callback:
         gui_output_callback(console_message) # Or just log_safe_text, depending on GUI needs
 
-    if engine:
-        # Start the TTS in a separate thread to avoid blocking the main loop
-        tts_thread = threading.Thread(target=_speak_in_thread, args=(tts_safe_text, ai_console_name), daemon=True)
-        tts_thread.start()
+    if TTS_ENGINE_AVAILABLE and engine:
+        tts_queue.put(tts_safe_text) # Put text onto the queue for the worker thread
 
 class SkillContext:
     """A class to hold shared resources that skills might need."""
@@ -299,7 +327,7 @@ class PraxisCore:
             speak(critical_msg)
             raise RuntimeError(critical_msg)
 
-        self.engine = engine 
+        # self.engine is global, no need to store instance variable if using global directly
         self.recognizer = None
         self.microphone = None
         if SPEECH_RECOGNITION_AVAILABLE:
@@ -346,6 +374,14 @@ class PraxisCore:
         self.last_ai_response_summary_for_feedback: Optional[str] = None
 
         self.sentiment_analyzer = SentimentIntensityAnalyzer() if NLTK_VADER_AVAILABLE else None
+
+        # Start the TTS worker thread if it's not already running and engine is available
+        global tts_worker_thread_instance
+        if TTS_ENGINE_AVAILABLE and engine and (tts_worker_thread_instance is None or not tts_worker_thread_instance.is_alive()):
+            tts_worker_thread_instance = threading.Thread(target=tts_worker, daemon=True)
+            tts_worker_thread_instance.start()
+        elif not TTS_ENGINE_AVAILABLE:
+            logging.warning("PraxisCore: TTS engine not available, TTS worker thread not started.")
     # --- Rate Limiting Methods ---
     def _clean_old_metrics(self):
         """Removes outdated entries from RPM and TPM deques."""
@@ -869,10 +905,33 @@ class PraxisCore:
     def shutdown(self):
         if self.is_running:
             self.is_running = False 
-            time.sleep(0.1)
-            (self.skill_context.speak if self.skill_context else speak)(f"{self.ai_name} shutting down.")
-            logging.info("PraxisCore shutdown initiated.")
+            
+            shutdown_message = f"{self.ai_name} shutting down."
+            # Use the global speak function to queue the message
+            speak(shutdown_message, from_skill_context=bool(self.skill_context))
+            logging.info(f"PraxisCore shutdown initiated. Queued: '{shutdown_message}'")
             self._update_gui_status(praxis_state_override="Shutdown")
+
+            # Signal TTS worker to shut down and wait for it
+            global tts_worker_thread_instance
+            if TTS_ENGINE_AVAILABLE and engine and tts_worker_thread_instance and tts_worker_thread_instance.is_alive():
+                logging.info("PraxisCore: Signaling TTS worker to shutdown...")
+                tts_queue.put(TTS_SHUTDOWN_SENTINEL)
+                try:
+                    # Wait for all items (including the shutdown message and sentinel) to be processed
+                    if not tts_queue.empty():
+                        logging.info("PraxisCore: Waiting for TTS queue to empty...")
+                        tts_queue.join() # This ensures task_done() called for all items
+                    logging.info("PraxisCore: TTS queue processed.")
+                    # Now wait for the thread to actually terminate
+                    tts_worker_thread_instance.join(timeout=5) # Give it a few seconds
+                    if tts_worker_thread_instance.is_alive():
+                       logging.warning("PraxisCore: TTS worker thread did not terminate cleanly within timeout.")
+                    else:
+                       logging.info("PraxisCore: TTS worker thread terminated successfully.")
+                except Exception as e:
+                    logging.error(f"PraxisCore: Error during TTS worker shutdown: {e}", exc_info=True)
+            tts_worker_thread_instance = None # Clear the instance
 
 if __name__ == "__main__":
     print(f"{PRAXIS_VERSION_INFO} - main.py executed. To run Praxis with GUI, execute gui.py.")
