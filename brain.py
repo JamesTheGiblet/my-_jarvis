@@ -5,7 +5,7 @@ import re
 from typing import Optional, Dict, Any, TYPE_CHECKING, Tuple
 
 import google.generativeai as genai # For model type hint
-from google.generativeai.types import génération_types # For specific exceptions
+from google.generativeai.types import generation_types # For specific exceptions
 
 if TYPE_CHECKING: # To avoid circular import for type hinting
     from google.generativeai.generative_models import ChatSession # type: ignore
@@ -140,10 +140,10 @@ def process_command_with_llm(
         parsed_json = extract_json(response.text)
         return parsed_json, prompt_tokens, response_tokens
 
-    except génération_types.BlockedPromptException as bpe:
+    except generation_types.BlockedPromptException as bpe:
         logging.error(f"Praxis LLM Brain Error: Prompt was blocked by the API. {bpe}", exc_info=True)
         return None, prompt_tokens, 0 # We have prompt tokens (if counted), no response tokens
-    except génération_types.StopCandidateException as sce:
+    except generation_types.StopCandidateException as sce:
          logging.error(f"Praxis LLM Brain Error: Generation stopped unexpectedly. {sce}", exc_info=True)
          partial_text = ""
          if sce.candidates and sce.candidates[0].content and sce.candidates[0].content.parts:
