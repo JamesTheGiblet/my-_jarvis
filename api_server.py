@@ -136,7 +136,7 @@ async def get_codex_logs(lines: int = 100):
     if not os.path.exists(log_file_path):
         raise HTTPException(status_code=404, detail="Log file not found.")
     try:
-        with open(log_file_path, "r", encoding="utf-8") as f:
+        with open(log_file_path, "r", encoding="utf-8", errors="replace") as f:
             log_lines = f.readlines()
         return [LogEntry(line=line.strip()) for line in log_lines[-lines:]]
     except Exception as e:
@@ -148,4 +148,4 @@ if __name__ == "__main__":
     if not PraxisCore:
         print("Exiting API server due to PraxisCore import failure.")
     else:
-        uvicorn.run(app, host="0.0.0.0", port=8000)
+        uvicorn.run(app, host="127.0.0.1", port=8000)

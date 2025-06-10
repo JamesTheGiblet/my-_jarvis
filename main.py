@@ -111,7 +111,8 @@ def speak(text_to_speak: str, text_to_log: Optional[str] = None, from_skill_cont
 
     if TTS_ENGINE_AVAILABLE and engine:
         tts_queue.put(tts_safe_text) # Put text onto the queue for the worker thread
-
+    if praxis_instance_for_speak and hasattr(praxis_instance_for_speak, 'current_command_spoken_parts'):
+        praxis_instance_for_speak.current_command_spoken_parts.append(tts_safe_text)
 class SkillContext:
     """A class to hold shared resources that skills might need."""
     def __init__(self, speak_func, chat_session, knowledge_base_module, skills_registry: Dict[str, Callable[..., Any]], current_user_name: str, input_mode_config_ref: Dict[str, str], speech_recognition_available_flag: bool, praxis_core_ref: 'PraxisCore'):
@@ -372,6 +373,7 @@ class PraxisCore:
         # For user feedback on last interaction
         self.last_interaction_id_for_feedback: Optional[int] = None
         self.last_ai_response_summary_for_feedback: Optional[str] = None
+        self.current_command_spoken_parts: List[str] = []
 
         self.sentiment_analyzer = SentimentIntensityAnalyzer() if NLTK_VADER_AVAILABLE else None
 
@@ -610,6 +612,7 @@ class PraxisCore:
             return
 
         self.last_interaction_time = datetime.now()
+        self.current_command_spoken_parts = [] # Reset for current command
         logging.info(f"User ({self.current_user_name} - {self.input_mode_config['mode']}): {user_input}")
         self._update_gui_status(praxis_state_override="Thinking...")
 
@@ -753,6 +756,11 @@ class PraxisCore:
             speak("A critical error occurred while processing your command. Please check the logs.")
             self.last_ai_response_summary_for_feedback = "Critical error in command processing (general)."
         finally:
+            if self.current_command_spoken_parts:
+                self.last_ai_response_summary_for_feedback = "\n".join(self.current_command_spoken_parts)
+            # If last_ai_response_summary_for_feedback is still None or empty after attempting to join,
+            # it means no speak calls were made or they were empty.
+            # It might have been set by specific error handlers already.
             self._update_gui_status(enable_feedback_buttons=(self.last_interaction_id_for_feedback is not None))
 
     def _trigger_fallback_handler(self, original_input: str):
