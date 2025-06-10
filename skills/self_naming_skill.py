@@ -41,6 +41,23 @@ def choose_and_set_name(context: Any, name_options_initial: Optional[List[str]] 
         logging.error("SelfNamingSkill: KnowledgeBase or store_system_identity_item not available.")
         return
 
+    current_name = get_self_name(context)
+    if current_name:
+        if context.is_muted: # In muted/test mode, don't ask to change, just proceed if forced
+            logging.info(f"SelfNamingSkill (Muted Test): Name '{current_name}' already exists. Test proceeds to change it.")
+        else:
+            change_prompt = f"I am currently known as {current_name}. Would you like to choose a new name for me, sir? (yes/no)"
+            context.speak(change_prompt)
+            user_decision = input(f"Change name from {current_name}? (yes/no, via console): ").strip().lower()
+            if user_decision not in ["yes", "y"]:
+                context.speak(f"Very well. I shall remain {current_name}.")
+                return # Exit the skill
+            else:
+                context.speak("Understood. Let's consider new names then.")
+    else:
+        # No current name, so proceed to choose one.
+        context.speak("I don't have a name yet. Let's choose one.")
+
     chosen_name_data: Optional[Dict[str, Any]] = None # Will store {'name': str, 'reason': Optional[str]}
     # Convert name_options_initial (List[str]) to List[Dict[str, Any]] if provided
     name_options_structured: Optional[List[Dict[str, Any]]] = [{'name': n, 'reason': None} for n in name_options_initial] if name_options_initial else None
@@ -101,8 +118,8 @@ def choose_and_set_name(context: Any, name_options_initial: Optional[List[str]] 
             break # Exit loop for muted mode
         else:
             user_choice_prompt = f"Your choice (name, 'try again', 'suggest', or 'cancel'): "
-            print(f"{context.ai_name} (to you): {user_choice_prompt}")
-            user_input_raw = input(f"Your choice: ").strip().lower()
+            context.speak(user_choice_prompt) # Changed from print to context.speak
+            user_input_raw = input(f"Your choice for {context.ai_name} (via console): ").strip().lower() # Clarified input source
 
             if user_input_raw == "cancel":
                 context.speak("Very well, I shall remain as I am for now.")
@@ -113,8 +130,8 @@ def choose_and_set_name(context: Any, name_options_initial: Optional[List[str]] 
                 continue # Restart the loop to generate new names
             elif user_input_raw == "suggest":
                 suggestion_prompt = "What name would you like to suggest for me, sir?"
-                print(f"{context.ai_name} (to you): {suggestion_prompt}")
-                user_suggested_name = input("Your suggestion: ").strip()
+                context.speak(suggestion_prompt) # Changed from print to context.speak
+                user_suggested_name = input(f"Your suggestion for {context.ai_name} (via console): ").strip() # Clarified input source
                 if user_suggested_name:
                     capitalized_name = ' '.join(word.capitalize() for word in user_suggested_name.split())
                     chosen_name_data = {'name': capitalized_name, 'reason': None} # User suggestions don't have AI reasons
@@ -150,12 +167,12 @@ def choose_and_set_name(context: Any, name_options_initial: Optional[List[str]] 
         else:
             confirm_prompt = f"Shall I adopt the name '{final_chosen_name_str}', sir? (yes/no)"
 
-        print(f"{context.ai_name} (to you): {confirm_prompt}")
+        context.speak(confirm_prompt) # Changed from print to context.speak
         if context.is_muted: # Auto-confirm in muted mode
             confirmation = "yes"
             logging.info(f"SelfNamingSkill (Muted Test): Auto-confirming name '{final_chosen_name_str}'")
         else:
-            confirmation = input("Confirm (yes/no): ").strip().lower()
+            confirmation = input(f"Confirm for {context.ai_name} (yes/no, via console): ").strip().lower() # Clarified input source
 
         if confirmation == "yes":
             if context.kb.store_system_identity_item(AI_NAME_CATEGORY, AI_NAME_KEY, final_chosen_name_str):
