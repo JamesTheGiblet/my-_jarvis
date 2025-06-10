@@ -19,6 +19,13 @@ except ImportError:
     SPEECH_RECOGNITION_AVAILABLE = False
     print("Praxis Warning: SpeechRecognition library not found. Voice input will be disabled. Falling back to text input.")
     print("To enable voice input, please install SpeechRecognition and PyAudio: pip install SpeechRecognition PyAudio")
+
+try:
+    from nltk.sentiment.vader import SentimentIntensityAnalyzer
+    NLTK_VADER_AVAILABLE = True
+except ImportError:
+    NLTK_VADER_AVAILABLE = False
+    print("Praxis Warning: NLTK or VADER lexicon not found. Sentiment analysis will be basic. Install with: pip install nltk")
 from config import model
 from brain import process_command_with_llm, strip_wake_words
 from config import GEMINI_1_5_FLASH_RPM, GEMINI_1_5_FLASH_TPM, GEMINI_1_5_FLASH_RPD # Import rate limit constants for reference
@@ -321,6 +328,7 @@ class PraxisCore:
         self.pending_confirmation: Optional[Dict[str, Any]] = None
         self.failed_skill_module_tests_ref: list[str] = [] # To store results from load_skills
 
+        self.sentiment_analyzer = SentimentIntensityAnalyzer() if NLTK_VADER_AVAILABLE else None
     # --- Rate Limiting Methods ---
     def _clean_old_metrics(self):
         """Removes outdated entries from RPM and TPM deques."""
@@ -568,16 +576,34 @@ class PraxisCore:
         self._update_gui_status(praxis_state_override="Thinking...")
 
         # --- Sentiment Analysis for CEQ ---
-        # This is a placeholder. A real implementation would use a proper sentiment analysis tool.
-        def analyze_user_sentiment(text: str) -> str: # Returns a string like "FRUSTRATED", "NEUTRAL"
-            text_lower = text.lower()
-            if any(phrase in text_lower for phrase in ["stupid", "won't work", "damn", "this is frustrating", "fix it"]):
-                return "FRUSTRATED"
-            if any(phrase in text_lower for phrase in ["thank you", "great", "awesome", "perfect", "excellent"]):
-                return "POSITIVE"
-            if "?" in text or any(phrase in text_lower for phrase in ["how do i", "what is", "can you explain", "could you"]):
-                return "QUESTIONING"
-            return "NEUTRAL"
+        def analyze_user_sentiment(text: str) -> str:
+            """
+            Analyzes user sentiment. Uses NLTK VADER if available, otherwise falls back to basic keyword matching.
+            Returns: "POSITIVE", "NEGATIVE", "NEUTRAL", "FRUSTRATED", "QUESTIONING"
+            """
+            if self.sentiment_analyzer:
+                vs = self.sentiment_analyzer.polarity_scores(text)
+                compound = vs['compound']
+                # You can fine-tune these thresholds
+                if compound >= 0.05:
+                    # Further check for explicit frustration even if overall positive/neutral
+                    if any(phrase in text.lower() for phrase in ["stupid", "won't work", "damn", "this is frustrating", "fix it"]):
+                        return "FRUSTRATED"
+                    return "POSITIVE"
+                elif compound <= -0.05:
+                     # Explicit frustration check
+                    if any(phrase in text.lower() for phrase in ["stupid", "won't work", "damn", "this is frustrating", "fix it"]):
+                        return "FRUSTRATED"
+                    return "NEGATIVE" # VADER's negative can often map to frustration
+                # If neutral by VADER, check for questioning or explicit frustration
+            
+            # Fallback or supplemental keyword analysis (can be combined with VADER's neutral)
+            text_lower = text.lower() # Ensure lowercase for keyword matching
+            if any(phrase in text_lower for phrase in ["stupid", "won't work", "damn", "this is frustrating", "fix it"]): return "FRUSTRATED"
+            if any(phrase in text_lower for phrase in ["thank you", "great", "awesome", "perfect", "excellent"]): return "POSITIVE" # Can override VADER if needed
+            if "?" in text or any(phrase in text_lower for phrase in ["how do i", "what is", "can you explain", "could you"]): return "QUESTIONING"
+            return "NEUTRAL" # Default if VADER is neutral and no other keywords match
+
         user_sentiment = analyze_user_sentiment(user_input) # Analyze original input for more context
         logging.info(f"PraxisCore: Detected user sentiment: {user_sentiment} for input: '{user_input}'")
         # --- End Sentiment Analysis ---

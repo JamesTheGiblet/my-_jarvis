@@ -5,7 +5,7 @@ import importlib
 import subprocess
 import logging
 import re
-from typing import List, Dict, Tuple
+from typing import List, Dict, Optional, Tuple
 
 # Ensure the main project directory is in PYTHONPATH to import brain, config
 project_root = os.path.dirname(os.path.abspath(__file__))
@@ -65,8 +65,8 @@ def run_single_benchmark(problem_dir: str, problem_name: str, k_attempts: int) -
                 problem_description, llm_model, attempt_number=attempt
             )
         
-        cumulative_prompt_tokens += p_tokens_current
-        cumulative_response_tokens += r_tokens_current
+        cumulative_prompt_tokens += current_p_tokens
+        cumulative_response_tokens += current_r_tokens
 
         if not generated_code_text:
             logging.error(f"[{problem_name}] Attempt {attempt}/{k_attempts}: LLM failed to generate code.")
