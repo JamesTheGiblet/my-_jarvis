@@ -90,6 +90,18 @@ Analyze the user's latest request based on the conversation history.
         If the request is purely conversational (e.g., a greeting, a simple question like "how are you?", or a statement like "that's interesting"), respond with skill 'speak'.
         When using the 'speak' skill, provide the conversational response in the 'text' argument.
 
+        If a user asks for specific information (like weather) by location name, but the most relevant skill requires precise inputs (like latitude and longitude) which are not directly provided:
+        1. First, check if you have a skill to convert the location name to the required precise inputs (e.g., a geocoding skill). If so, plan to use that skill first, then the specific information skill.
+        2. If no such conversion skill exists, you should use the 'speak' skill to inform the user about the required inputs for the specific skill and ask if they can provide them. Alternatively, you can offer to perform a general 'web_search' for the information if you believe it might yield a useful result.
+        Example: User asks "What's the weather in London?". If `get_weather` needs lat/lon, and no geocoding skill is available, a good response would be:
+        {{
+            "skill": "speak",
+            "args": {{"text": "I can get precise weather if you provide the latitude and longitude for London. Alternatively, would you like me to perform a general web search for London's weather?"}},
+            "explanation": "User asked for weather by location name, but the get_weather skill needs coordinates. Offering options.",
+            "confidence_score": 0.80,
+            "warnings": ["get_weather skill requires coordinates not provided directly."]
+        }}
+
         SPECIFIC INSTRUCTIONS FOR INPUT MODE:
         - If the user explicitly asks to "switch to text input", "use text mode", "type commands", or similar phrases indicating a desire for text-based interaction, you MUST use the "set_input_mode_text" skill.
           Example: User says "let's switch to text input" -> {{"skill": "set_input_mode_text", "args": {{}}}}
