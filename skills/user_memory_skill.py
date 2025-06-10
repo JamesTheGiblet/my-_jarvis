@@ -28,8 +28,8 @@ def ask_and_store_profile_item(context: Any, question_to_ask: str, item_category
             user_answer = f"Simulated answer for {item_category}/{item_key}"
             logging.info(f"UserMemorySkill (Muted Test): Simulating input for '{question_to_ask}' (cat: {item_category}, key: {item_key}): {user_answer}")
         else:
-            # Direct input approach for simplicity in this skill.
-            print(f"Praxis (to you): {question_to_ask}")
+            # The context.speak above already asked the question.
+            # The print statement here would be redundant if GUI/console output is handled by context.speak.
             user_answer = input(f"Your answer for {item_category} - {item_key}: ").strip()
             logging.info(f"UserMemorySkill: User answered '{user_answer}' for category '{item_category}', key '{item_key}'.")
 
