@@ -54,6 +54,17 @@ def set_gui_output_callback(callback_func: Callable[[str], None]) -> None:
 # --- End GUI Integration ---
 praxis_instance_for_speak: Optional['PraxisCore'] = None # To allow speak to access current AI name
 
+def _speak_in_thread(tts_text: str, ai_name: str):
+    """Helper function to run TTS in a separate thread."""
+    if engine:
+        try:
+            engine.say(tts_text)
+            engine.runAndWait()
+        except Exception as e:
+            warning_message = f"{ai_name} Warning: Text-to-speech failed in thread. {e}"
+            print(warning_message)
+            # No GUI callback here, as the main speak function already handled the log message
+
 def speak(text_to_speak: str, text_to_log: Optional[str] = None, from_skill_context: bool = False) -> None:
     """Gives the AI a voice and prints the response."""
     tts_safe_text = str(text_to_speak)
@@ -69,14 +80,9 @@ def speak(text_to_speak: str, text_to_log: Optional[str] = None, from_skill_cont
         gui_output_callback(console_message) # Or just log_safe_text, depending on GUI needs
 
     if engine:
-        try:
-            engine.say(tts_safe_text) # TTS reads this
-            engine.runAndWait()
-        except Exception as e:
-            warning_message = f"{ai_console_name} Warning: Text-to-speech failed. {e}"
-            print(warning_message)
-            if gui_output_callback:
-                gui_output_callback(warning_message)
+        # Start the TTS in a separate thread to avoid blocking the main loop
+        tts_thread = threading.Thread(target=_speak_in_thread, args=(tts_safe_text, ai_console_name), daemon=True)
+        tts_thread.start()
 
 class SkillContext:
     """A class to hold shared resources that skills might need."""
