@@ -35,11 +35,23 @@ def _fetch_from_api(url: str, params: Dict = None, headers: Dict = None) -> Tupl
                 else:
                     logging.error(error_message + " Exhausted retries.")
                     return None, error_message
-
+            
             response.raise_for_status() # Raises HTTPError for bad responses (4XX or 5XX)
-            return response.json(), None
-        
-        except requests.exceptions.RequestException as e: # Catches network errors, timeouts, etc.
+            # Attempt to parse JSON only if status is OK and content is expected
+            if response.status_code == 200 and response.content:
+                return response.json(), None
+            elif response.status_code == 200 and not response.content: # OK but empty response
+                logging.warning(f"API returned 200 OK but with empty content from '{url}'.")
+                return None, f"The API at '{url.split('/')[-2]}' provided an empty response."
+            # For other non-error status codes that might not have JSON, handle as appropriate or let raise_for_status catch it.
+            return None, f"Received an unexpected response status ({response.status_code}) from '{url}'."
+        except json.JSONDecodeError as e:
+            response_text_preview = "N/A (response object not available or text attribute missing)"
+            if 'response' in locals() and hasattr(response, 'text'):
+                response_text_preview = response.text[:200] # Log a preview of the non-JSON response
+            logging.error(f"Failed to decode JSON response from '{url}': {str(e)}. Response text preview: {response_text_preview}")
+            return None, f"The API at '{url.split('/')[-2]}' returned data in an unexpected format."
+        except requests.exceptions.RequestException as e: # Catches other network errors, timeouts, HTTP errors etc.
             error_message = f"API request error for '{url}' (attempt {attempt + 1}/{MAX_RETRIES + 1}): {str(e)}"
             if attempt < MAX_RETRIES:
                 logging.warning(error_message + " Retrying...")
@@ -47,12 +59,6 @@ def _fetch_from_api(url: str, params: Dict = None, headers: Dict = None) -> Tupl
             else:
                 logging.error(error_message + " Exhausted retries.")
                 return None, error_message
-        except json.JSONDecodeError as e:
-            response_text_preview = "N/A (response object not available or text attribute missing)"
-            if 'response' in locals() and hasattr(response, 'text'):
-                response_text_preview = response.text[:200] # Log a preview of the non-JSON response
-            logging.error(f"Failed to decode JSON response from '{url}': {str(e)}. Response text preview: {response_text_preview}")
-            return None, f"Failed to decode JSON response from '{url}'."
     # Fallback, though theoretically unreachable if loop logic is complete for all attempts.
     return None, f"An unexpected error occurred after all retries for API request to '{url}'."
 
@@ -64,10 +70,11 @@ def get_joke(context, category_and_params: str = "Any?safe-mode"):
     Args:
         context: The skill context.
         category_and_params (str): Category and parameters for the joke API 
-                                   (e.g., 'Any?safe-mode', 'Programming', 'Christmas?type=single').
+                                   (e.g., 'Any?safe-mode', 'Programming', 'Christmas?type=single'). Defaults to "Any?safe-mode".
     """
     joke_api_url_base = "https://v2.jokeapi.dev/joke/"
-    effective_cat_params = category_and_params.lstrip('/') # Ensure no leading slash if base ends with /
+    # Use default if empty string is passed, ensure no leading slash
+    effective_cat_params = category_and_params.lstrip('/') if category_and_params else "Any?safe-mode"
     full_joke_api_url = joke_api_url_base + effective_cat_params
     
     context.speak(f"Certainly, sir. Looking for a {effective_cat_params.split('?')[0].replace('_', ' ')} joke...")
@@ -75,20 +82,26 @@ def get_joke(context, category_and_params: str = "Any?safe-mode"):
     
     if error:
         context.speak(f"I'm sorry, sir. I couldn't fetch a joke at the moment. {error}")
+        return False
     elif data:
         if data.get("error"): # JokeAPI can return error:true in a 200 OK response
              context.speak(f"It seems there was an issue with the joke service: {data.get('message', 'Unknown joke API error')}")
              logging.warning(f"JokeAPI returned error: {data}")
+             return False
         elif data.get("type") == "single":
             context.speak(data.get("joke", "I found a joke, but it seems to have vanished!"))
+            return True
         elif data.get("type") == "twopart":
             context.speak(data.get("setup", "I have a joke for you..."))
             context.speak(data.get("delivery", "...but I forgot the punchline!")) # pyttsx3 will queue these
+            return True
         else:
             context.speak("I received something, but it's not the joke format I was expecting, sir.")
             logging.warning(f"Unexpected joke format from API: {data}")
+            return False
     else:
         context.speak("My apologies, I couldn't find a joke right now.")
+        return False
 
 def get_weather(context, latitude: str, longitude: str):
     """

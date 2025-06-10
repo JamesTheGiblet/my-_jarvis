@@ -679,21 +679,33 @@ class PraxisCore:
                 if skill_name in SKILLS:
                     skill_function = SKILLS[skill_name]
                     logging.info(f"PraxisCore: Attempting to call skill: {skill_name} with args: {args}")
-                    skill_executed_successfully = False
+                    skill_executed_successfully = False # Default to False
                     error_msg_for_kb = None
+                    skill_return_value = None
                     try:
                         if self.skill_context:
                             self.skill_context.clear_spoken_messages_for_test() 
-                        skill_function(self.skill_context, **args)
-                        skill_executed_successfully = True
+                        skill_return_value = skill_function(self.skill_context, **args)
+
+                        if isinstance(skill_return_value, bool):
+                            skill_executed_successfully = skill_return_value
+                        elif skill_return_value is None: # No explicit return, assume success if no exception
+                            skill_executed_successfully = True
+                        else: # Unexpected return type, log it and assume failure for safety
+                            logging.warning(f"Skill '{skill_name}' returned an unexpected type: {type(skill_return_value)}. Assuming failure.")
+                            skill_executed_successfully = False # Already default, but explicit
+                            error_msg_for_kb = f"Skill returned unexpected type: {type(skill_return_value)}"
+
                     except TypeError as te:
                         error_msg_for_kb = f"Argument mismatch or skill definition error: {te}"
                         logging.error(f"PraxisCore: Error during execution of skill '{skill_name}' due to TypeError: {te}", exc_info=True)
                         self.skill_context.speak(f"I had trouble with the arguments for the action: {skill_name}.")
+                        skill_executed_successfully = False # Ensure it's false on exception
                     except Exception as skill_e:
                         error_msg_for_kb = str(skill_e)
                         logging.error(f"PraxisCore: Error during execution of skill '{skill_name}': {skill_e}", exc_info=True)
                         self.skill_context.speak(f"I encountered an error while trying to perform the action: {skill_name}.")
+                        skill_executed_successfully = False # Ensure it's false on exception
                     finally:
                         self.kb.record_skill_invocation(
                             skill_name=skill_name, success=skill_executed_successfully,
