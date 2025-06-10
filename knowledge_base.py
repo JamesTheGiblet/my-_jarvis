@@ -76,6 +76,26 @@ def init_db():
                     PRIMARY KEY (item_category, item_key)
                 )
             """)
+
+            # Table for detailed interaction logs and user feedback
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS interaction_feedback (
+                    interaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    user_name TEXT,
+                    ai_name TEXT,
+                    user_input TEXT,
+                    llm_skill_choice TEXT,
+                    llm_args_chosen TEXT,
+                    llm_explanation TEXT,
+                    llm_confidence REAL,
+                    llm_warnings TEXT,
+                    ai_final_response_summary TEXT,
+                    feedback_type TEXT, -- 'positive', 'negative'
+                    feedback_comment TEXT,
+                    is_high_ceq_candidate BOOLEAN DEFAULT FALSE
+                )
+            """)
             conn.commit()
             logging.info(f"KnowledgeBase: Database '{DB_NAME}' initialized successfully.")
     except sqlite3.Error as e:
@@ -497,6 +517,49 @@ def delete_system_identity_item(item_category: str, item_key: str) -> bool:
         logging.error(f"KnowledgeBase: Error deleting system identity item for category '{item_category}', key '{item_key}': {e}", exc_info=True)
         return False
 
+def log_interaction_details(
+    user_name: Optional[str], ai_name: Optional[str], user_input: Optional[str],
+    llm_skill_choice: Optional[str], llm_args_chosen: Optional[dict],
+    llm_explanation: Optional[str], llm_confidence: Optional[float], llm_warnings: Optional[list],
+    ai_final_response_summary: Optional[str]
+) -> Optional[int]:
+    """Logs the details of an AI interaction, returning the interaction_id."""
+    timestamp_now_utc = datetime.now(timezone.utc).isoformat()
+    args_json = json.dumps(llm_args_chosen, default=str) if llm_args_chosen else None
+    warnings_json = json.dumps(llm_warnings) if llm_warnings else None
+
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO interaction_feedback 
+                (timestamp, user_name, ai_name, user_input, llm_skill_choice, llm_args_chosen, 
+                 llm_explanation, llm_confidence, llm_warnings, ai_final_response_summary)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (timestamp_now_utc, user_name, ai_name, user_input, llm_skill_choice, args_json,
+                  llm_explanation, llm_confidence, warnings_json, ai_final_response_summary))
+            conn.commit()
+            interaction_id = cursor.lastrowid
+            logging.info(f"KnowledgeBase: Logged interaction details for ID: {interaction_id}.")
+            return interaction_id
+    except sqlite3.Error as e:
+        logging.error(f"KnowledgeBase: Error logging interaction details: {e}", exc_info=True)
+        return None
+
+def record_interaction_feedback(interaction_id: int, feedback_type: str, comment: Optional[str] = None):
+    """Records user feedback (positive/negative) for a given interaction_id."""
+    is_high_ceq = True if feedback_type == 'positive' else False
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE interaction_feedback SET feedback_type = ?, feedback_comment = ?, is_high_ceq_candidate = ?
+                WHERE interaction_id = ?
+            """, (feedback_type, comment, is_high_ceq, interaction_id))
+            conn.commit()
+            logging.info(f"KnowledgeBase: Recorded feedback '{feedback_type}' for interaction ID: {interaction_id}.")
+    except sqlite3.Error as e:
+        logging.error(f"KnowledgeBase: Error recording feedback for interaction ID {interaction_id}: {e}", exc_info=True)
 
 # Initialize the DB when this module is loaded (e.g., at app startup if imported early)
 # Alternatively, call init_db() explicitly from main.py

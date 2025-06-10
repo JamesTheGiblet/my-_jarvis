@@ -181,6 +181,7 @@ def load_skills(skill_context: SkillContext, skills_directory: str = "skills") -
                 logging.error(f"Failed to import module {module_name_full}: {e}")
             except Exception as e:
                 logging.error(f"Error loading skill from {module_name_full}: {e}")
+    return failed_module_tests
 
 def generate_skills_description_for_llm(skills_from_files: Dict[str, Callable[..., Any]], global_speak_func: Callable) -> str:
     """
@@ -270,7 +271,7 @@ def listen_for_command(recognizer: 'sr.Recognizer', microphone: 'sr.Microphone')
     return None
 
 class PraxisCore:
-    def __init__(self, gui_update_status_callback: Optional[Callable[[Dict[str, str]], None]] = None):
+    def __init__(self, gui_update_status_callback: Optional[Callable[[Dict[str, str], bool], None]] = None): # Added bool for feedback buttons
         global SKILLS, praxis_instance_for_speak # Allow PraxisCore to manage globals
         praxis_instance_for_speak = self # Make this instance available to the global speak function
 
@@ -327,6 +328,10 @@ class PraxisCore:
 
         self.pending_confirmation: Optional[Dict[str, Any]] = None
         self.failed_skill_module_tests_ref: list[str] = [] # To store results from load_skills
+        
+        # For user feedback on last interaction
+        self.last_interaction_id_for_feedback: Optional[int] = None
+        self.last_ai_response_summary_for_feedback: Optional[str] = None
 
         self.sentiment_analyzer = SentimentIntensityAnalyzer() if NLTK_VADER_AVAILABLE else None
     # --- Rate Limiting Methods ---
@@ -429,53 +434,45 @@ class PraxisCore:
                     self._perform_formal_greeting() # Perform full greeting with the new name
             self._update_gui_status()
 
-    def _update_gui_status(self, praxis_state_override: Optional[str] = None, confirmation_prompt: Optional[str] = None):
+    def _update_gui_status(self, praxis_state_override: Optional[str] = None, confirmation_prompt: Optional[str] = None, enable_feedback_buttons: bool = False):
         # This method in PraxisCore should only check if the callback is set.
         # The callback itself (which is a GUI method) will handle GUI-specific checks like root window existence.
-        # The previous check `if not hasattr(self, 'root')` would cause this to return early, as PraxisCore doesn't own `root`.
         if self.gui_update_status_callback:
             state_to_report = praxis_state_override if praxis_state_override else "Idle"
             status = {
                 "user": self.current_user_name if self.current_user_name else "[Not Set]",
                 "mode": self.input_mode_config['mode'],
                 "praxis_state": state_to_report,
-                # Rate limit status
                 "rpm": f"{self.get_current_rpm()}/{GEMINI_1_5_FLASH_RPM}",
                 "tpm": f"{self.get_current_tpm()}/{GEMINI_1_5_FLASH_TPM}",
                 "rpd": f"{self.daily_request_count}/{GEMINI_1_5_FLASH_RPD}",
             }
             if confirmation_prompt:
                 status["confirmation_prompt"] = confirmation_prompt
-            elif self.pending_confirmation: # If a confirmation is pending, reflect it
+            elif self.pending_confirmation: 
                 state_to_report = "Awaiting Confirmation" 
                 status["praxis_state"] = state_to_report
-                # Ensure confirmation_prompt key exists even if value is None
                 status["confirmation_prompt"] = self.pending_confirmation.get("prompt") 
-            self.gui_update_status_callback(status)
+            self.gui_update_status_callback(status, enable_feedback_buttons)
 
     def _perform_formal_greeting(self):
         """Performs the standard AI welcome and status messages."""
         if not self.skill_context or self.has_been_formally_introduced:
             return
 
-        # This part announces the AI name and user. This should always happen once per session.
         self.skill_context.speak(f"Welcome. Initializing systems for {self.current_user_name}. I am {self.ai_name}.")
         
         existing_profile_items = self.kb.get_user_profile_items_by_category(self.current_user_name, "interest")
         if existing_profile_items:
-            # Check if user has interacted before using a flag in user_data_store
-            USER_INTERACTED_FLAG_KEY = "user_interaction_recorded" # Key to check/store interaction
+            USER_INTERACTED_FLAG_KEY = "user_interaction_recorded" 
             user_interaction_record = self.kb.get_user_data(self.current_user_name, USER_INTERACTED_FLAG_KEY)
 
-            if user_interaction_record: # If any record exists (e.g., a timestamp string from a previous session)
+            if user_interaction_record: 
                 self.skill_context.speak(f"It's good to see you again, {self.current_user_name}!")
             else:
                 self.skill_context.speak(f"A pleasure to meet you for the first time, {self.current_user_name}. I look forward to assisting you.")
-
-                # Mark that this first formal interaction has occurred for this user by storing a timestamp
                 self.kb.store_user_data(self.current_user_name, USER_INTERACTED_FLAG_KEY, datetime.now(timezone.utc).isoformat())
         
-        # Construct version string using current AI name
         version_info_parts = PRAXIS_VERSION_INFO.split(" ", 1)
         descriptive_part_of_version = version_info_parts[1] if len(version_info_parts) > 1 else "(Version details unavailable)"
         current_version_display = f"{self.ai_name} {descriptive_part_of_version}"
@@ -498,7 +495,7 @@ class PraxisCore:
             self._update_gui_status(praxis_state_override="Error: No user name")
             return
 
-        self.has_been_formally_introduced = False # Reset for new user session
+        self.has_been_formally_introduced = False 
         self.current_user_name = user_name
 
         self.skill_context = SkillContext(
@@ -520,19 +517,14 @@ class PraxisCore:
             try:
                 retrieved_name = SKILLS["get_self_name"](self.skill_context)
                 if retrieved_name:
-                    # Name exists, update PraxisCore directly.
-                    # update_ai_name will handle the greeting if it's the first time.
                     self.update_ai_name(retrieved_name)
                     logging.info(f"PraxisCore: Loaded AI name '{self.ai_name}' from knowledge base.")
                     name_is_set_or_chosen = True
             except Exception as e:
                 logging.error(f"PraxisCore: Error trying to get AI name during init: {e}", exc_info=True)
-                # Proceed, will likely use default name or try to choose one.
 
-        if not name_is_set_or_chosen: # If name wasn't loaded from KB
+        if not name_is_set_or_chosen: 
             if "choose_and_set_name" in SKILLS:
-                # Do not automatically call choose_and_set_name as it's CLI interactive.
-                # Inform the user instead.
                 self.skill_context.speak(
                     "I don't seem to have a chosen name yet. "
                     "You can ask me to 'choose and set name' if you'd like, sir."
@@ -545,8 +537,6 @@ class PraxisCore:
                     "PraxisCore: No AI name in KB and 'choose_and_set_name' skill not available. Using default name."
                 )
 
-        # If after all attempts (loading or choosing) the formal introduction hasn't happened yet,
-        # (e.g. name remained default, or naming skills were absent/cancelled), perform it now.
         if not self.has_been_formally_introduced:
             self._perform_formal_greeting()
         logging.info(f"PraxisCore: User identified as '{self.current_user_name}'. AI name is '{self.ai_name}'.")
@@ -568,45 +558,34 @@ class PraxisCore:
             return
 
         if not user_input:
-            self._update_gui_status()
+            self._update_gui_status(enable_feedback_buttons=(self.last_interaction_id_for_feedback is not None))
             return
 
         self.last_interaction_time = datetime.now()
         logging.info(f"User ({self.current_user_name} - {self.input_mode_config['mode']}): {user_input}")
         self._update_gui_status(praxis_state_override="Thinking...")
 
-        # --- Sentiment Analysis for CEQ ---
         def analyze_user_sentiment(text: str) -> str:
-            """
-            Analyzes user sentiment. Uses NLTK VADER if available, otherwise falls back to basic keyword matching.
-            Returns: "POSITIVE", "NEGATIVE", "NEUTRAL", "FRUSTRATED", "QUESTIONING"
-            """
             if self.sentiment_analyzer:
                 vs = self.sentiment_analyzer.polarity_scores(text)
                 compound = vs['compound']
-                # You can fine-tune these thresholds
                 if compound >= 0.05:
-                    # Further check for explicit frustration even if overall positive/neutral
                     if any(phrase in text.lower() for phrase in ["stupid", "won't work", "damn", "this is frustrating", "fix it"]):
                         return "FRUSTRATED"
                     return "POSITIVE"
                 elif compound <= -0.05:
-                     # Explicit frustration check
                     if any(phrase in text.lower() for phrase in ["stupid", "won't work", "damn", "this is frustrating", "fix it"]):
                         return "FRUSTRATED"
-                    return "NEGATIVE" # VADER's negative can often map to frustration
-                # If neutral by VADER, check for questioning or explicit frustration
-            
-            # Fallback or supplemental keyword analysis (can be combined with VADER's neutral)
-            text_lower = text.lower() # Ensure lowercase for keyword matching
+                    return "NEGATIVE" 
+            text_lower = text.lower() 
             if any(phrase in text_lower for phrase in ["stupid", "won't work", "damn", "this is frustrating", "fix it"]): return "FRUSTRATED"
-            if any(phrase in text_lower for phrase in ["thank you", "great", "awesome", "perfect", "excellent"]): return "POSITIVE" # Can override VADER if needed
+            if any(phrase in text_lower for phrase in ["thank you", "great", "awesome", "perfect", "excellent"]): return "POSITIVE" 
             if "?" in text or any(phrase in text_lower for phrase in ["how do i", "what is", "can you explain", "could you"]): return "QUESTIONING"
-            return "NEUTRAL" # Default if VADER is neutral and no other keywords match
+            return "NEUTRAL" 
 
-        user_sentiment = analyze_user_sentiment(user_input) # Analyze original input for more context
+        user_sentiment = analyze_user_sentiment(user_input) 
         logging.info(f"PraxisCore: Detected user sentiment: {user_sentiment} for input: '{user_input}'")
-        # --- End Sentiment Analysis ---
+        
         if user_input.lower() in ["exit", "quit", "goodbye", f"goodbye {self.ai_name.lower().strip()}"]:
             self.skill_context.speak("Goodbye.")
             self.is_running = False 
@@ -615,19 +594,16 @@ class PraxisCore:
 
         clean_input, _ = strip_wake_words(user_input)
         
-        # --- Rate Limiting Pre-check ---
         self._reset_daily_metrics_if_new_day()
         can_request, reason = self._can_make_request()
         if not can_request:
             self.skill_context.speak(f"I am currently unable to process new requests due to API rate limits: {reason}. Please try again later.")
             logging.warning(f"PraxisCore: API call blocked due to client-side rate limit: {reason}")
-            self._update_gui_status(praxis_state_override=f"Rate Limited: {reason.split('.')[0]}") # Short reason for GUI
+            self._update_gui_status(praxis_state_override=f"Rate Limited: {reason.split('.')[0]}", enable_feedback_buttons=(self.last_interaction_id_for_feedback is not None)) 
             return
-        # --- End Rate Limiting Pre-check ---
-
+        
         try:
-            # The 'model' instance for token counting is available as config.model
-            llm_model_instance = model # from config import model
+            llm_model_instance = model 
 
             parsed_command, p_tokens, r_tokens = process_command_with_llm(
                 command=clean_input,
@@ -635,21 +611,31 @@ class PraxisCore:
                 available_skills_prompt_str=self.available_skills_prompt_str,
                 ai_name=self.ai_name,
                 model=llm_model_instance,
-                user_sentiment=user_sentiment # Pass detected sentiment
+                user_sentiment=user_sentiment 
             )
 
-            # Record API usage attempt, regardless of whether parsed_command is valid
+            self.last_interaction_id_for_feedback = None 
             self._record_api_usage(p_tokens, r_tokens)
 
             if parsed_command:
                 skill_name = parsed_command.get("skill")
                 args = parsed_command.get("args", {})
+                explanation = parsed_command.get("explanation", "No explanation provided by LLM.")
+                confidence_str = parsed_command.get("confidence_score", "-1.0")
+                try:
+                    confidence = float(confidence_str)
+                except ValueError:
+                    confidence = -1.0 
+                warnings_list = parsed_command.get("warnings", [])
+
                 if skill_name in SKILLS:
                     skill_function = SKILLS[skill_name]
                     logging.info(f"PraxisCore: Attempting to call skill: {skill_name} with args: {args}")
                     skill_executed_successfully = False
                     error_msg_for_kb = None
                     try:
+                        if self.skill_context:
+                            self.skill_context.clear_spoken_messages_for_test() 
                         skill_function(self.skill_context, **args)
                         skill_executed_successfully = True
                     except TypeError as te:
@@ -665,27 +651,44 @@ class PraxisCore:
                             skill_name=skill_name, success=skill_executed_successfully,
                             args_used=args, error_message=error_msg_for_kb
                         )
+                    self.last_ai_response_summary_for_feedback = self.skill_context.get_last_spoken_message_for_test() if self.skill_context else "N/A"
                 elif skill_name == "speak":
                     text_for_speak_skill = args.get("text", "I'm not sure what to say.")
                     self.skill_context.speak(text_for_speak_skill) 
                     self.kb.record_skill_invocation(skill_name="speak", success=True, args_used=args)
+                    self.last_ai_response_summary_for_feedback = text_for_speak_skill
                 else:
-                    # LLM returned a JSON but with an unknown skill
                     logging.warning(f"PraxisCore: LLM returned unknown skill '{skill_name}'. Args: {args}")
+                    self.last_ai_response_summary_for_feedback = f"Attempted unknown skill: {skill_name}"
                     self._trigger_fallback_handler(clean_input)
+                
+                self.last_interaction_id_for_feedback = self.kb.log_interaction_details(
+                    user_name=self.current_user_name, ai_name=self.ai_name, user_input=clean_input,
+                    llm_skill_choice=skill_name, llm_args_chosen=args,
+                    llm_explanation=explanation, llm_confidence=confidence, llm_warnings=warnings_list,
+                    ai_final_response_summary=self.last_ai_response_summary_for_feedback
+                )
             else:
-                # process_command_with_llm returned None for parsed_command
-                # This could be due to API error, blocked prompt, or JSON extraction failure.
-                # _record_api_usage has already been called with potentially 0 response tokens.
-                if p_tokens > 0 and r_tokens == 0: # Likely an API error or block after prompt was processed
+                if p_tokens > 0 and r_tokens == 0: 
                     self.skill_context.speak("I had trouble processing that request with my core systems. Please try rephrasing or try again later.")
-                else: # Other parsing or unexpected issue
+                    self.last_ai_response_summary_for_feedback = "Core system processing error."
+                else: 
                     self._trigger_fallback_handler(clean_input)
+                    self.last_ai_response_summary_for_feedback = "Fallback triggered due to parsing issue."
+                
+                self.last_interaction_id_for_feedback = self.kb.log_interaction_details(
+                    user_name=self.current_user_name, ai_name=self.ai_name, user_input=clean_input,
+                    llm_skill_choice="N/A (LLM Parse Error)", llm_args_chosen=None,
+                    llm_explanation="Failed to parse LLM response or LLM error.", 
+                    llm_confidence=0.0, llm_warnings=["LLM response parsing failed"],
+                    ai_final_response_summary=self.last_ai_response_summary_for_feedback
+                )
         except Exception as e:
             logging.error(f"PraxisCore: Critical error in process_command_text: {e}", exc_info=True)
             speak("A critical error occurred while processing your command.")
+            self.last_ai_response_summary_for_feedback = "Critical error in command processing."
         finally:
-            self._update_gui_status() 
+            self._update_gui_status(enable_feedback_buttons=(self.last_interaction_id_for_feedback is not None))
 
     def _trigger_fallback_handler(self, original_input: str):
         if not self.skill_context: return
@@ -697,12 +700,20 @@ class PraxisCore:
             "prompt": prompt_message
         }
         self.skill_context.speak(prompt_message) 
-        self._update_gui_status(praxis_state_override="Awaiting Confirmation", confirmation_prompt=prompt_message)
+        self.last_ai_response_summary_for_feedback = prompt_message 
+        
+        self.last_interaction_id_for_feedback = self.kb.log_interaction_details(
+            user_name=self.current_user_name, ai_name=self.ai_name, user_input=original_input,
+            llm_skill_choice="fallback_confirmation", llm_args_chosen={"original_input": original_input},
+            llm_explanation="AI was unsure how to handle the request and asked for web search confirmation.", llm_confidence=0.3, llm_warnings=[],
+            ai_final_response_summary=prompt_message
+        )
+        self._update_gui_status(praxis_state_override="Awaiting Confirmation", confirmation_prompt=prompt_message, enable_feedback_buttons=True)
 
     def handle_gui_confirmation(self, confirmed: bool):
         if not self.pending_confirmation or not self.skill_context:
             logging.warning("PraxisCore: handle_gui_confirmation called with no pending confirmation.")
-            self._update_gui_status()
+            self._update_gui_status(enable_feedback_buttons=(self.last_interaction_id_for_feedback is not None))
             return
 
         conf_type = self.pending_confirmation.get("type")
@@ -715,18 +726,35 @@ class PraxisCore:
                 if "web_search" in SKILLS:
                     logging.info(f"PraxisCore: Web search confirmed by GUI for: {original_input}")
                     SKILLS["web_search"](self.skill_context, query=original_input)
+                    self.last_ai_response_summary_for_feedback = f"Web search initiated for: {original_input}" 
                 else:
                     self.skill_context.speak("The web search skill is not available.")
+                    self.last_ai_response_summary_for_feedback = "Web search skill unavailable."
             else:
                 logging.info(f"PraxisCore: Web search declined by GUI for: {original_input}")
                 self.skill_context.speak("Okay, I won't search the web.")
+                self.last_ai_response_summary_for_feedback = "Web search declined."
         
-        self._update_gui_status()
+        self.last_interaction_id_for_feedback = self.kb.log_interaction_details(
+            user_name=self.current_user_name, ai_name=self.ai_name, user_input=f"Confirmation Response: {'Yes' if confirmed else 'No'}",
+            llm_skill_choice=f"confirmation_handler_{conf_type}", llm_args_chosen={"confirmed": confirmed, "original_input": original_input},
+            llm_explanation=f"User responded to confirmation prompt for {conf_type}.", llm_confidence=1.0, llm_warnings=[],
+            ai_final_response_summary=self.last_ai_response_summary_for_feedback
+        )
+        self._update_gui_status(enable_feedback_buttons=True)
+
+    def handle_response_feedback(self, is_positive: bool):
+        if self.last_interaction_id_for_feedback is not None:
+            feedback_type = "positive" if is_positive else "negative"
+            self.kb.record_interaction_feedback(self.last_interaction_id_for_feedback, feedback_type)
+            speak(f"Thank you for your feedback on my last response, {self.current_user_name}.", from_skill_context=True) 
+            self.last_interaction_id_for_feedback = None 
+            self._update_gui_status(enable_feedback_buttons=False) 
 
     def _listen_in_thread(self):
         if not self.recognizer or not self.microphone or not self.skill_context:
             speak("Voice components not ready.")
-            self._update_gui_status() 
+            self._update_gui_status(enable_feedback_buttons=(self.last_interaction_id_for_feedback is not None)) 
             return
 
         self._update_gui_status(praxis_state_override="Listening...")
@@ -736,12 +764,12 @@ class PraxisCore:
             if command_text:
                 self.process_command_text(command_text)
             else:
-                self._update_gui_status() 
+                self._update_gui_status(enable_feedback_buttons=(self.last_interaction_id_for_feedback is not None)) 
 
     def start_voice_input(self) -> None:
         if not (SPEECH_RECOGNITION_AVAILABLE and self.recognizer and self.microphone):
             speak("Voice input is not available on this system.")
-            self._update_gui_status()
+            self._update_gui_status(enable_feedback_buttons=(self.last_interaction_id_for_feedback is not None))
             return
         
         if self.input_mode_config['mode'] != 'voice':
@@ -777,7 +805,7 @@ class PraxisCore:
             else:
                 self.skill_context.speak(f"It's been a while, {self.skill_context.current_user_name}. Is there anything I can assist you with?")
             self.last_interaction_time = current_time
-            self._update_gui_status() 
+            self._update_gui_status(enable_feedback_buttons=(self.last_interaction_id_for_feedback is not None)) 
 
     def toggle_input_mode_core(self, to_mode: Optional[str] = None) -> None:
         if not self.skill_context: return
@@ -787,7 +815,7 @@ class PraxisCore:
         if to_mode:
             if to_mode == 'voice' and not effective_sr_available:
                 self.skill_context.speak("Cannot switch to voice mode, speech recognition is not available/ready.")
-                self._update_gui_status()
+                self._update_gui_status(enable_feedback_buttons=(self.last_interaction_id_for_feedback is not None))
                 return
             self.input_mode_config['mode'] = to_mode
         else: 
@@ -796,17 +824,16 @@ class PraxisCore:
                     self.input_mode_config['mode'] = 'voice'
                 else:
                     self.skill_context.speak("Voice input is not available to toggle to.")
-                    self._update_gui_status()
+                    self._update_gui_status(enable_feedback_buttons=(self.last_interaction_id_for_feedback is not None))
                     return 
             else:
                 self.input_mode_config['mode'] = 'text'
         
         self.skill_context.speak(f"Input mode switched to {self.input_mode_config['mode']}.")
         logging.info(f"PraxisCore: Input mode set to {self.input_mode_config['mode']}.")
-        self._update_gui_status()
+        self._update_gui_status(enable_feedback_buttons=(self.last_interaction_id_for_feedback is not None))
         
         if self.input_mode_config['mode'] == 'voice' and self.is_running:
-             # Check to_mode to avoid loop if called internally for initial switch
             if to_mode == 'voice' or (to_mode is None and self.input_mode_config['mode'] == 'voice'):
                 self.start_voice_input()
 
@@ -824,67 +851,17 @@ class PraxisCore:
                 gui_output_callback(f"System: {log_msg}")
                 
         logging.info(f"PraxisCore: TTS {status}.")
-        self._update_gui_status() 
+        self._update_gui_status(enable_feedback_buttons=(self.last_interaction_id_for_feedback is not None)) 
         return self.skill_context.is_muted
 
     def shutdown(self):
         if self.is_running:
-            self.is_running = False # Signal threads to stop
-            # Short delay to allow threads to notice the flag if they are in a loop
+            self.is_running = False 
             time.sleep(0.1)
-            # Use skill_context.speak if available to use the AI's name, else global speak
             (self.skill_context.speak if self.skill_context else speak)(f"{self.ai_name} shutting down.")
             logging.info("PraxisCore shutdown initiated.")
             self._update_gui_status(praxis_state_override="Shutdown")
 
 if __name__ == "__main__":
-    # This block is typically for running the script directly.
-    # For GUI applications, gui.py will be the entry point.
-    # If you want to test PraxisCore in CLI:
     print(f"{PRAXIS_VERSION_INFO} - main.py executed. To run Praxis with GUI, execute gui.py.")
-    
-    # Example CLI test (uncomment to use):
-    # def cli_speak_callback(message: str):
-    #     print(f"CLI_SPEAK: {message}")
-    # def cli_status_callback(status: Dict[str, str]):
-    #     print(f"CLI_STATUS: {status}")
-
-    # set_gui_output_callback(cli_speak_callback)
-    # core = None
-    # try:
-    #     core = PraxisCore(gui_update_status_callback=cli_status_callback)
-    #     user = input("Enter username: ")
-    #     core.initialize_user_session(user)
-    #     while core.is_running:
-    #         core.handle_inactivity() # Check inactivity periodically
-    #         if core.input_mode_config['mode'] == 'text':
-    #             if core.pending_confirmation:
-    #                 conf_prompt = core.pending_confirmation.get("prompt", "Confirm?")
-    #                 conf_resp = input(f"Praxis (Confirmation): {conf_prompt} (yes/no): ").strip().lower()
-    #                 core.handle_gui_confirmation(conf_resp == 'yes')
-    #             else:
-    #                 cmd = input(f"{core.current_user_name} (text): ").strip()
-    #                 if cmd:
-    #                     core.process_command_text(cmd)
-    #         elif core.input_mode_config['mode'] == 'voice':
-    #             print("Voice mode active in CLI. Type 'text' to switch to text, or a command to simulate voice.")
-    #             cmd = input(f"{core.current_user_name} (voice-sim): ").strip()
-    #             if cmd.lower() == 'text':
-    #                 core.toggle_input_mode_core('text')
-    #             elif cmd:
-    #                 core.process_command_text(cmd) # Simulate voice input as text
-    #         
-    #         time.sleep(0.1) # Brief pause to prevent tight loop in CLI
-    # except KeyboardInterrupt:
-    #     print("\nCLI interrupted by user.")
-    # except RuntimeError as e:
-    #     print(f"CLI Runtime Error: {e}")
-    # except Exception as e:
-    #     print(f"CLI Unexpected Error: {e}")
-    #     logging.error("CLI unexpected error", exc_info=True)
-    # finally:
-    #     if core and core.is_running:
-    #         print("Shutting down PraxisCore from CLI...")
-    #         core.shutdown()
-    #     print("CLI session ended.")
     pass

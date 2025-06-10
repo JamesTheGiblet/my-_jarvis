@@ -15,7 +15,7 @@ except ImportError as e:
     INACTIVITY_THRESHOLD_SECONDS = 300 
     SPEECH_RECOGNITION_AVAILABLE = False
     PRAXIS_VERSION_INFO = "Praxis (Standalone GUI)"
-
+ 
 class PraxisGUI:
     def __init__(self, root: tk.Tk):
         self.root = root
@@ -113,6 +113,14 @@ class PraxisGUI:
 
         self.toggle_tts_mute_button = tk.Button(controls_frame, text="Mute TTS", command=self.toggle_tts_mute, font=self.button_font, relief=tk.RAISED, bd=2)
         self.toggle_tts_mute_button.pack(side=tk.LEFT, padx=(2,5))
+
+        # --- Feedback Buttons ---
+        self.feedback_label = tk.Label(controls_frame, text="Feedback on last response:", font=self.status_font)
+        self.feedback_label.pack(side=tk.LEFT, padx=(10,2))
+        self.thumb_up_button = tk.Button(controls_frame, text="👍 Up", command=self.give_positive_feedback, font=self.button_font, relief=tk.RAISED, bd=2, state=tk.DISABLED)
+        self.thumb_up_button.pack(side=tk.LEFT, padx=(0,2))
+        self.thumb_down_button = tk.Button(controls_frame, text="👎 Down", command=self.give_negative_feedback, font=self.button_font, relief=tk.RAISED, bd=2, state=tk.DISABLED)
+        self.thumb_down_button.pack(side=tk.LEFT, padx=(0,2))
 
         # --- Confirmation Buttons Frame (initially hidden) ---
         self.confirmation_frame = tk.Frame(controls_frame)
@@ -220,11 +228,12 @@ class PraxisGUI:
         self.response_area.configure(state=tk.DISABLED)
         self.response_area.see(tk.END) # Auto-scroll
 
-    def update_status_labels_thread_safe(self, status: Dict[str, str]):
+    def update_status_labels_thread_safe(self, status: Dict[str, str], enable_feedback_buttons: bool = False):
         """Thread-safe way to update status labels."""
-        self._make_thread_safe_gui_call(self._update_status_labels, status)
+        # Pass enable_feedback_buttons to the actual update method
+        self._make_thread_safe_gui_call(self._update_status_labels, status, enable_feedback_buttons)
 
-    def _update_status_labels(self, status: Dict[str, str]):
+    def _update_status_labels(self, status: Dict[str, str], enable_feedback_buttons: bool = False):
         """Updates the GUI status labels based on dict from PraxisCore."""
         if not self.root.winfo_exists(): return
 
@@ -267,6 +276,12 @@ class PraxisGUI:
         elif status.get("praxis_state") in ["Thinking...", "Listening...", "Speaking...", "Proactive..."] or confirmation_prompt:
             self.send_button.config(state=tk.DISABLED)
             self.command_entry.config(state=tk.DISABLED)
+        
+        # Enable/disable feedback buttons
+        feedback_state = tk.NORMAL if enable_feedback_buttons and self.praxis_core and self.praxis_core.last_interaction_id_for_feedback is not None else tk.DISABLED
+        self.thumb_up_button.config(state=feedback_state)
+        self.thumb_down_button.config(state=feedback_state)
+
 
     def send_command_event(self, event=None): # Event handler for Enter key, event is optional
         self.send_command()
@@ -332,6 +347,20 @@ class PraxisGUI:
         if self.praxis_core and self.praxis_core_initialized_event.is_set():
             self.add_message_to_response_area_thread_safe("No (declined)", "You")
             threading.Thread(target=self.praxis_core.handle_gui_confirmation, args=(False,), daemon=True).start()
+
+    def give_positive_feedback(self):
+        if self.praxis_core and self.praxis_core.last_interaction_id_for_feedback is not None:
+            self.add_message_to_response_area_thread_safe("Provided positive feedback.", "System")
+            threading.Thread(target=self.praxis_core.handle_response_feedback, args=(True,), daemon=True).start()
+            self.thumb_up_button.config(state=tk.DISABLED) # Disable after use
+            self.thumb_down_button.config(state=tk.DISABLED)
+
+    def give_negative_feedback(self):
+        if self.praxis_core and self.praxis_core.last_interaction_id_for_feedback is not None:
+            self.add_message_to_response_area_thread_safe("Provided negative feedback.", "System")
+            threading.Thread(target=self.praxis_core.handle_response_feedback, args=(False,), daemon=True).start()
+            self.thumb_up_button.config(state=tk.DISABLED) # Disable after use
+            self.thumb_down_button.config(state=tk.DISABLED)
 
 if __name__ == "__main__":
     root = tk.Tk()
