@@ -1,5 +1,5 @@
 # main.py (New Orchestrator Version)
-from datetime import datetime
+from datetime import datetime, timezone # Added timezone
 import logging
 import os
 import importlib
@@ -351,13 +351,22 @@ class PraxisCore:
         if not self.skill_context or self.has_been_formally_introduced:
             return
 
+        # This part announces the AI name and user. This should always happen once per session.
         self.skill_context.speak(f"Welcome. Initializing systems for {self.current_user_name}. I am {self.ai_name}.")
         
         existing_profile_items = self.kb.get_user_profile_items_by_category(self.current_user_name, "interest")
         if existing_profile_items:
-            self.skill_context.speak(f"It's good to see you again, {self.current_user_name}!")
-        else:
-            self.skill_context.speak(f"A pleasure to meet you for the first time, {self.current_user_name}. I look forward to assisting you.")
+            # Check if user has interacted before using a flag in user_data_store
+            USER_INTERACTED_FLAG_KEY = "user_interaction_recorded" # Key to check/store interaction
+            user_interaction_record = self.kb.get_user_data(self.current_user_name, USER_INTERACTED_FLAG_KEY)
+
+            if user_interaction_record: # If any record exists (e.g., a timestamp string from a previous session)
+                self.skill_context.speak(f"It's good to see you again, {self.current_user_name}!")
+            else:
+                self.skill_context.speak(f"A pleasure to meet you for the first time, {self.current_user_name}. I look forward to assisting you.")
+
+                # Mark that this first formal interaction has occurred for this user by storing a timestamp
+                self.kb.store_user_data(self.current_user_name, USER_INTERACTED_FLAG_KEY, datetime.now(timezone.utc).isoformat())
         
         # Construct version string using current AI name
         version_info_parts = PRAXIS_VERSION_INFO.split(" ", 1)
