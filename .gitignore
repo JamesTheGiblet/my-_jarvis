@@ -3,3 +3,6 @@
 /__pycache__
 skills/__pycache__
 /codex.log
+/praxis_knowledge_base.db
+/praxis_calendar_data.json
+skills/proposed_new_skills/__pycache__

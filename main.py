@@ -328,9 +328,9 @@ class PraxisCore:
             self._update_gui_status()
 
     def _update_gui_status(self, praxis_state_override: Optional[str] = None, confirmation_prompt: Optional[str] = None):
-        # Check if GUI root exists, is not None, and is a valid window object before updating status
-        if not hasattr(self, 'root') or not self.root or not self.root.winfo_exists():
-            return # Silently return if GUI is not ready or not available
+        # This method in PraxisCore should only check if the callback is set.
+        # The callback itself (which is a GUI method) will handle GUI-specific checks like root window existence.
+        # The previous check `if not hasattr(self, 'root')` would cause this to return early, as PraxisCore doesn't own `root`.
         if self.gui_update_status_callback:
             state_to_report = praxis_state_override if praxis_state_override else "Idle"
             status = {
