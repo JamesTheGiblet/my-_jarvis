@@ -1,4 +1,4 @@
-# skills/emotion_skill.py
+# abilties/emotion_skill.py
 import logging
 import random
 from typing import Any, Optional

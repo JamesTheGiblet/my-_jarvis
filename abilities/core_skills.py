@@ -1,4 +1,4 @@
-# c:\Users\gilbe\Desktop\my _jarvis\skills\core_skills.py
+#abilties\core_skills.py
 import datetime
 import logging # Import standard logging
 # This import is necessary for the web_search function.

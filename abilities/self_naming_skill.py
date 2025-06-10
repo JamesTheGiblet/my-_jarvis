@@ -1,4 +1,4 @@
-# skills/self_naming_skill.py
+# abilties/self_naming_skill.py
 import logging
 import random
 import re # For parsing names and justifications
