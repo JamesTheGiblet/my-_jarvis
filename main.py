@@ -567,6 +567,20 @@ class PraxisCore:
         logging.info(f"User ({self.current_user_name} - {self.input_mode_config['mode']}): {user_input}")
         self._update_gui_status(praxis_state_override="Thinking...")
 
+        # --- Sentiment Analysis for CEQ ---
+        # This is a placeholder. A real implementation would use a proper sentiment analysis tool.
+        def analyze_user_sentiment(text: str) -> str: # Returns a string like "FRUSTRATED", "NEUTRAL"
+            text_lower = text.lower()
+            if any(phrase in text_lower for phrase in ["stupid", "won't work", "damn", "this is frustrating", "fix it"]):
+                return "FRUSTRATED"
+            if any(phrase in text_lower for phrase in ["thank you", "great", "awesome", "perfect", "excellent"]):
+                return "POSITIVE"
+            if "?" in text or any(phrase in text_lower for phrase in ["how do i", "what is", "can you explain", "could you"]):
+                return "QUESTIONING"
+            return "NEUTRAL"
+        user_sentiment = analyze_user_sentiment(user_input) # Analyze original input for more context
+        logging.info(f"PraxisCore: Detected user sentiment: {user_sentiment} for input: '{user_input}'")
+        # --- End Sentiment Analysis ---
         if user_input.lower() in ["exit", "quit", "goodbye", f"goodbye {self.ai_name.lower().strip()}"]:
             self.skill_context.speak("Goodbye.")
             self.is_running = False 
@@ -594,7 +608,8 @@ class PraxisCore:
                 chat_session=self.chat_session,
                 available_skills_prompt_str=self.available_skills_prompt_str,
                 ai_name=self.ai_name,
-                model=llm_model_instance
+                model=llm_model_instance,
+                user_sentiment=user_sentiment # Pass detected sentiment
             )
 
             # Record API usage attempt, regardless of whether parsed_command is valid

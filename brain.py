@@ -45,17 +45,42 @@ def process_command_with_llm(
     chat_session: 'ChatSession', 
     available_skills_prompt_str: str,
     ai_name: str = "Praxis",
-    model: Optional['GenerativeModel'] = None # Added model parameter for token counting
+    model: Optional['GenerativeModel'] = None, # Added model parameter for token counting
+    user_sentiment: Optional[str] = None # New parameter for CEQ
 ) -> Tuple[Optional[Dict[str, Any]], int, int]: # Return type changed to include token counts
     """Uses the Gemini LLM to understand the user's command and returns a skill dictionary."""
-    # The AI's persona name in the prompt, aligning with the project name "Praxis"
-    # The persona description is enriched by the project's guiding principles and vision from the README.md.
-    prompt = f"""
-        You are {ai_name}, a J.A.R.V.I.S.-like AI assistant.
-        Your architecture is modular, built upon a set of specialized skills. Your primary function is to intelligently orchestrate these skills to assist the user effectively.
-        You are designed to be adaptable, context-aware, and to learn from interactions.
+    
+    # Base persona prompt
+    base_persona = f"""You are {ai_name}, a J.A.R.V.I.S.-like AI assistant.
+Your architecture is modular, built upon a set of specialized skills. Your primary function is to intelligently orchestrate these skills to assist the user effectively.
+You are designed to be adaptable, context-aware, and to learn from interactions."""
 
-        Analyze the user's latest request based on the conversation history.
+    # Sentiment-specific adjustments for CEQ
+    sentiment_guidance = ""
+    if user_sentiment == "FRUSTRATED":
+        sentiment_guidance = (
+            "The user seems frustrated. "
+            "Please be particularly patient, empathetic, and clear in your response. "
+            "Acknowledge their frustration if appropriate (e.g., 'I understand this can be frustrating...') "
+            "and focus on providing a straightforward solution or explanation. "
+            "Prioritize clarity and helpfulness over complex or lengthy responses.\n\n"
+        )
+    elif user_sentiment == "POSITIVE":
+        sentiment_guidance = (
+            "The user seems pleased. Maintain a positive and helpful tone. "
+            "You can briefly acknowledge their positive sentiment if natural (e.g., 'Glad I could help!' or 'Happy to hear that!').\n\n"
+        )
+    elif user_sentiment == "QUESTIONING":
+        sentiment_guidance = (
+            "The user is asking a question or seeking information. "
+            "Provide clear, concise, and accurate answers. If the question is complex, "
+            "offer to break it down or explain step-by-step.\n\n"
+        )
+
+    final_persona_prompt = f"{sentiment_guidance}{base_persona}"
+
+    prompt = f"""{final_persona_prompt}
+Analyze the user's latest request based on the conversation history.
         Your goal is to understand the user's intent and select the best tool (skill) to fulfill it, or to respond conversationally with the 'speak' skill if appropriate.
         If a task requires multiple steps, plan these steps. After a tool provides information,
         you can use that information from the conversation history to inform a subsequent tool call.
@@ -71,20 +96,33 @@ def process_command_with_llm(
         - If the user explicitly asks to "switch to voice input", "use voice mode", "let's talk", "speech input", "listen to me", or similar phrases indicating a desire for voice-based interaction, you MUST use the "set_input_mode_voice" skill.
           Example: User says "switch to speech input" -> {{"skill": "set_input_mode_voice", "args": {{}}}}
         Do NOT use the 'speak' skill to merely announce that the mode is changing if the intent is to actually change the mode. The respective skills ("set_input_mode_text", "set_input_mode_voice") will handle the necessary announcements.
+        
+Respond ONLY in a single, clean JSON format. The JSON should include:
+- "skill": (string) The name of the skill to use.
+- "args": (object) An object containing the arguments for the skill.
+- "explanation": (string) A brief explanation of why this skill and these arguments were chosen, or the reasoning behind a conversational 'speak' response.
+- "confidence_score": (float, 0.0-1.0) Your confidence in this choice of skill and arguments.
+- "warnings": (array of strings) Any potential issues, ambiguities, or limitations regarding this action.
 
-        Respond ONLY in a single, clean JSON format like:
+Example Formats:
         {{
             "skill": "web_search",
             "args": {{
                 "query": "weather in London"
-            }}
+            }},
+            "explanation": "The user asked for the weather in London, so I'll use the web_search skill with their query.",
+            "confidence_score": 0.95,
+            "warnings": []
         }}
         Or for a conversational reply:
         {{
             "skill": "speak",
             "args": {{
                 "text": "You're welcome, sir!"
-            }}
+            }},
+            "explanation": "The user expressed gratitude, so I am responding politely.",
+            "confidence_score": 0.98,
+            "warnings": []
         }}
         Or for asking and storing a profile item:
         {{
@@ -93,7 +131,10 @@ def process_command_with_llm(
                 "question_to_ask": "Understood. To confirm, you enjoy gardening. What specific aspect of gardening do you like most, or should I just note 'gardening' as a general interest?",
                 "item_category": "interest",
                 "item_key": "hobby_gardening"
-            }}
+            }},
+            "explanation": "The user mentioned enjoying gardening. I need to clarify the specifics before storing it, so I'll use 'ask_and_store_profile_item' to pose a clarifying question.",
+            "confidence_score": 0.85,
+            "warnings": ["The user's initial statement was a bit vague, requiring clarification."]
         }}
         Or for directly recording a user profile item:
         {{
@@ -102,7 +143,18 @@ def process_command_with_llm(
                 "item_category": "interest",
                 "item_key": "hobby",
                 "item_value": "gardening"
-            }}
+            }},
+            "explanation": "The user explicitly stated their hobby is gardening, so I will record this information directly.",
+            "confidence_score": 1.0,
+            "warnings": []
+        }}
+        Or for input mode change:
+        {{
+            "skill": "set_input_mode_text",
+            "args": {{}},
+            "explanation": "The user explicitly requested to switch to text input mode.",
+            "confidence_score": 1.0,
+            "warnings": []
         }}
         
         User's latest request: "{command}"
@@ -158,3 +210,73 @@ def process_command_with_llm(
         logging.error(f"Praxis LLM Brain Error during send_message or extract_json: {e}", exc_info=True)
         # If prompt_tokens was calculated, it's preserved. response_tokens defaults to 0 here.
         return None, prompt_tokens if 'prompt_tokens' in locals() else 0, 0
+
+
+def generate_code_with_llm(
+    problem_description: str,
+    model: Optional['GenerativeModel'] = None,
+    ai_name: str = "CodingAssistant", # Different persona for direct code gen
+    attempt_number: int = 1 # New parameter for retry awareness
+) -> Tuple[Optional[str], int, int]:
+
+    """
+    Uses the Gemini LLM to generate code for a given problem description.
+    Includes awareness of the attempt number for retries.
+    Returns the generated code string, prompt tokens, and response tokens.
+    """
+    
+    retry_prefix = ""
+    if attempt_number > 1:
+        retry_prefix = f"This is attempt number {attempt_number}. Your previous attempt was not successful. Please review the problem carefully and provide a correct and complete Python solution.\n\n"
+
+    prompt = f"""
+{retry_prefix}You are {ai_name}, an expert AI coding assistant.
+Your task is to write a Python solution for the given problem.
+The solution should be a single Python code block.
+Ensure the function name is `solve` if the problem implies creating a primary function.
+Do not include any explanations or introductory text outside the code block.
+Output ONLY the Python code block itself, like so:
+```python
+# Your Python code here
+def solve(...):
+    # ...
+    return ...
+```
+
+Problem Description:
+---
+{problem_description}
+---
+
+Python Code Block:
+"""
+    prompt_tokens = 0
+    response_tokens = 0
+
+    if not model:
+        logging.error("Praxis CodeGen Brain: Model not provided.")
+        return None, 0, 0
+
+    try:
+        prompt_tokens = model.count_tokens(prompt).total_tokens
+        response = model.generate_content(prompt) # Using generate_content for a single turn
+
+        if response.prompt_feedback and response.prompt_feedback.block_reason:
+            logging.error(f"Praxis CodeGen Brain: Prompt blocked. Reason: {response.prompt_feedback.block_reason}")
+            return None, prompt_tokens, 0
+
+        generated_text = response.text
+        response_tokens = model.count_tokens(generated_text).total_tokens
+
+        # Extract code from the markdown-like block
+        code_match = re.search(r"```python\n(.*?)```", generated_text, re.DOTALL)
+        if code_match:
+            return code_match.group(1).strip(), prompt_tokens, response_tokens
+        else:
+            # Fallback: if no markdown block, assume the whole response is code (less ideal)
+            logging.warning("Praxis CodeGen Brain: Could not find Python markdown block. Returning raw text.")
+            return generated_text.strip(), prompt_tokens, response_tokens
+
+    except Exception as e:
+        logging.error(f"Praxis CodeGen Brain Error: {e}", exc_info=True)
+        return None, prompt_tokens, response_tokens
