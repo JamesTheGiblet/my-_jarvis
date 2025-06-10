@@ -12,6 +12,7 @@ import asyncio
 # Assuming main.py and its components are in the same directory or accessible
 try:
     from main import PraxisCore, set_gui_output_callback
+    from config import GEMINI_1_5_FLASH_RPM, GEMINI_1_5_FLASH_TPM, GEMINI_1_5_FLASH_RPD
 except ImportError as e:
     print(f"Critical Error: Could not import PraxisCore from main.py: {e}")
     print("Ensure api_server.py is in the same directory as main.py or main.py is in PYTHONPATH.")
@@ -125,9 +126,9 @@ async def get_status():
         mode=praxis_core_instance.input_mode_config.get('mode', "N/A"),
         praxis_state=praxis_core_instance.skill_context.ai_name if praxis_core_instance.skill_context else "Initializing", # Simplified state
         ai_name=praxis_core_instance.ai_name,
-        rpm=f"{praxis_core_instance.get_current_rpm()}/{praxis_core_instance.kb.GEMINI_1_5_FLASH_RPM if hasattr(praxis_core_instance.kb, 'GEMINI_1_5_FLASH_RPM') else 'N/A'}", # Accessing from kb might be indirect
-        tpm=f"{praxis_core_instance.get_current_tpm()}/{praxis_core_instance.kb.GEMINI_1_5_FLASH_TPM if hasattr(praxis_core_instance.kb, 'GEMINI_1_5_FLASH_TPM') else 'N/A'}",
-        rpd=f"{praxis_core_instance.daily_request_count}/{praxis_core_instance.kb.GEMINI_1_5_FLASH_RPD if hasattr(praxis_core_instance.kb, 'GEMINI_1_5_FLASH_RPD') else 'N/A'}"
+        rpm=f"{praxis_core_instance.get_current_rpm()}/{GEMINI_1_5_FLASH_RPM}",
+        tpm=f"{praxis_core_instance.get_current_tpm()}/{GEMINI_1_5_FLASH_TPM}",
+        rpd=f"{praxis_core_instance.daily_request_count}/{GEMINI_1_5_FLASH_RPD}"
     )
 
 @app.get("/logs", response_model=List[LogEntry])

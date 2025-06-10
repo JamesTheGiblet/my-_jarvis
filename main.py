@@ -5,7 +5,7 @@ import os
 import importlib
 import random
 import inspect, time
-from typing import Callable, Dict, Any, Optional
+from typing import Callable, Dict, Any, List, Optional
 import threading # For voice input thread
 import queue # For TTS queue
 from collections import deque # For rate limiting queues
