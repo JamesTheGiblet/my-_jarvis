@@ -2,10 +2,14 @@
 import json
 import logging # Added logging
 import re
-from typing import Optional, Dict, Any, TYPE_CHECKING
+from typing import Optional, Dict, Any, TYPE_CHECKING, Tuple
+
+import google.generativeai as genai # For model type hint
+from google.generativeai.types import génération_types # For specific exceptions
 
 if TYPE_CHECKING: # To avoid circular import for type hinting
     from google.generativeai.generative_models import ChatSession # type: ignore
+    from google.generativeai import GenerativeModel # For type hint
 
 def strip_wake_words(command: str) -> tuple[str, bool]:
     """
@@ -40,8 +44,9 @@ def process_command_with_llm(
     command: str, 
     chat_session: 'ChatSession', 
     available_skills_prompt_str: str,
-    ai_name: str = "Praxis"  # Added AI name parameter with default
-) -> Optional[Dict[str, Any]]:
+    ai_name: str = "Praxis",
+    model: Optional['GenerativeModel'] = None # Added model parameter for token counting
+) -> Tuple[Optional[Dict[str, Any]], int, int]: # Return type changed to include token counts
     """Uses the Gemini LLM to understand the user's command and returns a skill dictionary."""
     # The AI's persona name in the prompt, aligning with the project name "Praxis"
     # The persona description is enriched by the project's guiding principles and vision from the README.md.
@@ -109,8 +114,47 @@ def process_command_with_llm(
     # If client-side rate limiting is needed, logic would be added here or in the calling function (PraxisCore)
     # before sending the message.
     try:
+        prompt_tokens = 0
+        response_tokens = 0
+
+        if model:
+            try:
+                prompt_tokens = model.count_tokens(prompt).total_tokens
+            except Exception as e:
+                logging.error(f"Praxis LLM Brain Error counting prompt tokens: {e}", exc_info=True)
+                # Proceed, prompt_tokens will be 0. API call might still work or fail.
+
         response = chat_session.send_message(prompt)
-        return extract_json(response.text)
+
+        if response.prompt_feedback and response.prompt_feedback.block_reason:
+            logging.error(f"Praxis LLM Brain: Prompt blocked by API. Reason: {response.prompt_feedback.block_reason}, Category: {response.prompt_feedback.safety_ratings}")
+            return None, prompt_tokens, 0 # No response tokens
+
+        if model and response.text:
+            try:
+                response_tokens = model.count_tokens(response.text).total_tokens
+            except Exception as e:
+                logging.error(f"Praxis LLM Brain Error counting response tokens: {e}", exc_info=True)
+                # response_tokens remains 0
+
+        parsed_json = extract_json(response.text)
+        return parsed_json, prompt_tokens, response_tokens
+
+    except génération_types.BlockedPromptException as bpe:
+        logging.error(f"Praxis LLM Brain Error: Prompt was blocked by the API. {bpe}", exc_info=True)
+        return None, prompt_tokens, 0 # We have prompt tokens (if counted), no response tokens
+    except génération_types.StopCandidateException as sce:
+         logging.error(f"Praxis LLM Brain Error: Generation stopped unexpectedly. {sce}", exc_info=True)
+         partial_text = ""
+         if sce.candidates and sce.candidates[0].content and sce.candidates[0].content.parts:
+             partial_text = "".join(part.text for part in sce.candidates[0].content.parts if hasattr(part, 'text'))
+         if model and partial_text:
+             try:
+                 response_tokens = model.count_tokens(partial_text).total_tokens
+             except Exception: # nosec
+                 pass # response_tokens remains 0
+         return None, prompt_tokens, response_tokens
     except Exception as e:
         logging.error(f"Praxis LLM Brain Error during send_message or extract_json: {e}", exc_info=True)
-        return None
+        # If prompt_tokens was calculated, it's preserved. response_tokens defaults to 0 here.
+        return None, prompt_tokens if 'prompt_tokens' in locals() else 0, 0

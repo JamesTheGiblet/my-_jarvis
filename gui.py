@@ -71,6 +71,15 @@ class PraxisGUI:
         self.praxis_status_label = tk.Label(status_frame, text="Praxis: Idle", font=self.status_font, anchor=tk.E)
         self.praxis_status_label.pack(side=tk.RIGHT, padx=5)
 
+        # Rate Limit Status Labels (add them before Praxis status to keep it on the right)
+        self.rpd_status_label = tk.Label(status_frame, text="RPD: 0/0", font=self.status_font, anchor=tk.W)
+        self.rpd_status_label.pack(side=tk.LEFT, padx=5)
+        self.tpm_status_label = tk.Label(status_frame, text="TPM: 0/0", font=self.status_font, anchor=tk.W)
+        self.tpm_status_label.pack(side=tk.LEFT, padx=5)
+        self.rpm_status_label = tk.Label(status_frame, text="RPM: 0/0", font=self.status_font, anchor=tk.W)
+        self.rpm_status_label.pack(side=tk.LEFT, padx=5)
+
+
         # --- Response Display Area ---
         response_frame = tk.Frame(self.root)
         response_frame.pack(padx=5, pady=5, fill=tk.BOTH, expand=True)
@@ -223,6 +232,11 @@ class PraxisGUI:
         current_mode = status.get('mode', '[N/A]')
         self.mode_status_label.config(text=f"Mode: {current_mode}")
         self.praxis_status_label.config(text=f"Praxis: {status.get('praxis_state', 'Idle')}")
+        
+        # Update rate limit labels
+        self.rpm_status_label.config(text=f"RPM: {status.get('rpm', '0/0')}")
+        self.tpm_status_label.config(text=f"TPM: {status.get('tpm', '0/0')}") # Ensure this uses a reasonable default if key missing
+        self.rpd_status_label.config(text=f"RPD: {status.get('rpd', '0/0')}")
 
         effective_sr_available = SPEECH_RECOGNITION_AVAILABLE and self.praxis_core and \
                                  self.praxis_core.recognizer and self.praxis_core.microphone

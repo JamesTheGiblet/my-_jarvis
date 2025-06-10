@@ -1,5 +1,5 @@
 # main.py (New Orchestrator Version)
-from datetime import datetime, timezone # Added timezone
+from datetime import datetime, timezone, timedelta # Added timezone and timedelta
 import logging
 import os
 import importlib
@@ -7,6 +7,7 @@ import random
 import inspect, time
 from typing import Callable, Dict, Any, Optional
 import threading # For voice input thread
+from collections import deque # For rate limiting queues
 import knowledge_base # Import the new module
 
 import pyttsx3
@@ -310,8 +311,97 @@ class PraxisCore:
         self.skill_context: Optional[SkillContext] = None
         self.available_skills_prompt_str: str = "No skills loaded yet."
         self.last_interaction_time: datetime = datetime.now()
+
+        # Rate Limiting / Monitoring Attributes
+        self.request_timestamps_rpm = deque()  # Stores datetime objects of requests
+        self.token_usage_tpm = deque()         # Stores (datetime, token_count) tuples
+        self.daily_request_count = 0
+        self.current_day_for_rpd = datetime.now(timezone.utc).date()
+
         self.pending_confirmation: Optional[Dict[str, Any]] = None
         self.failed_skill_module_tests_ref: list[str] = [] # To store results from load_skills
+
+    # --- Rate Limiting Methods ---
+    def _clean_old_metrics(self):
+        """Removes outdated entries from RPM and TPM deques."""
+        now = datetime.now(timezone.utc)
+        one_minute_ago = now - timedelta(minutes=1)
+
+        # Clean RPM queue
+        while self.request_timestamps_rpm and self.request_timestamps_rpm[0] < one_minute_ago:
+            self.request_timestamps_rpm.popleft()
+
+        # Clean TPM queue
+        while self.token_usage_tpm and self.token_usage_tpm[0][0] < one_minute_ago:
+            self.token_usage_tpm.popleft()
+
+    def _reset_daily_metrics_if_new_day(self):
+        """Resets the daily request counter if a new UTC day has started."""
+        today_utc = datetime.now(timezone.utc).date()
+        if today_utc > self.current_day_for_rpd:
+            logging.info(
+                f"PraxisCore: New day detected ({today_utc}). Resetting daily request count. "
+                f"Old count: {self.daily_request_count} for day {self.current_day_for_rpd}"
+            )
+            self.daily_request_count = 0
+            self.current_day_for_rpd = today_utc
+            # RPM and TPM are rolling windows, so they don't need a hard reset daily,
+            # _clean_old_metrics handles their rolling nature.
+
+    def _can_make_request(self) -> tuple[bool, str]:
+        """Checks if an API request can be made based on client-side tracked RPM and RPD."""
+        self._clean_old_metrics()  # Ensure metrics are up-to-date
+
+        # RPM Check
+        current_rpm = len(self.request_timestamps_rpm)
+        if current_rpm >= GEMINI_1_5_FLASH_RPM:
+            # Optional: Calculate time until next request is allowed
+            # time_since_oldest_rpm = (datetime.now(timezone.utc) - self.request_timestamps_rpm[0]).total_seconds()
+            # wait_time_seconds = 60 - time_since_oldest_rpm
+            # reason = f"RPM limit ({GEMINI_1_5_FLASH_RPM}) reached. Current: {current_rpm}. Try again in {wait_time_seconds:.1f}s."
+            reason = f"RPM limit ({GEMINI_1_5_FLASH_RPM}) reached. Current: {current_rpm}"
+            return False, reason
+
+        # RPD Check
+        if self.daily_request_count >= GEMINI_1_5_FLASH_RPD:
+            reason = f"RPD limit ({GEMINI_1_5_FLASH_RPD}) reached. Current: {self.daily_request_count}"
+            return False, reason
+
+        # TPM is primarily monitored post-call, as response tokens are unknown beforehand.
+        # A very basic proactive TPM check could be added here if desired, e.g.,
+        # current_tpm = self.get_current_tpm()
+        # if current_tpm >= GEMINI_1_5_FLASH_TPM:
+        #    return False, f"TPM limit ({GEMINI_1_5_FLASH_TPM}) reached. Current: {current_tpm}"
+        # However, this is aggressive as it doesn't account for the current call's tokens yet.
+
+        return True, "OK"
+
+    def _record_api_usage(self, prompt_tokens: int, response_tokens: int):
+        """Records an API usage attempt and its token consumption."""
+        now = datetime.now(timezone.utc)
+
+        self.request_timestamps_rpm.append(now)
+        self.daily_request_count += 1
+
+        total_tokens_for_call = prompt_tokens + response_tokens
+        if total_tokens_for_call > 0:
+            self.token_usage_tpm.append((now, total_tokens_for_call))
+
+        self._clean_old_metrics() # Clean up again after adding new entries
+
+        logging.info(
+            f"PraxisCore: API usage recorded. Prompt Tokens: {prompt_tokens}, Response Tokens: {response_tokens}. "
+            f"Current RPM: {self.get_current_rpm()}, Current TPM: {self.get_current_tpm()}, Today's RPD: {self.daily_request_count}"
+        )
+        self._update_gui_status() # Update GUI with new metrics
+
+    def get_current_rpm(self) -> int:
+        self._clean_old_metrics()
+        return len(self.request_timestamps_rpm)
+
+    def get_current_tpm(self) -> int:
+        self._clean_old_metrics()
+        return sum(tokens for _, tokens in self.token_usage_tpm)
 
     def update_ai_name(self, new_name: str):
         """Updates the AI's name and informs the user."""
@@ -340,14 +430,19 @@ class PraxisCore:
             status = {
                 "user": self.current_user_name if self.current_user_name else "[Not Set]",
                 "mode": self.input_mode_config['mode'],
-                "praxis_state": state_to_report
+                "praxis_state": state_to_report,
+                # Rate limit status
+                "rpm": f"{self.get_current_rpm()}/{GEMINI_1_5_FLASH_RPM}",
+                "tpm": f"{self.get_current_tpm()}/{GEMINI_1_5_FLASH_TPM}",
+                "rpd": f"{self.daily_request_count}/{GEMINI_1_5_FLASH_RPD}",
             }
             if confirmation_prompt:
                 status["confirmation_prompt"] = confirmation_prompt
             elif self.pending_confirmation: # If a confirmation is pending, reflect it
                 state_to_report = "Awaiting Confirmation" 
                 status["praxis_state"] = state_to_report
-                status["confirmation_prompt"] = self.pending_confirmation.get("prompt")
+                # Ensure confirmation_prompt key exists even if value is None
+                status["confirmation_prompt"] = self.pending_confirmation.get("prompt") 
             self.gui_update_status_callback(status)
 
     def _perform_formal_greeting(self):
@@ -480,18 +575,34 @@ class PraxisCore:
 
         clean_input, _ = strip_wake_words(user_input)
         
+        # --- Rate Limiting Pre-check ---
+        self._reset_daily_metrics_if_new_day()
+        can_request, reason = self._can_make_request()
+        if not can_request:
+            self.skill_context.speak(f"I am currently unable to process new requests due to API rate limits: {reason}. Please try again later.")
+            logging.warning(f"PraxisCore: API call blocked due to client-side rate limit: {reason}")
+            self._update_gui_status(praxis_state_override=f"Rate Limited: {reason.split('.')[0]}") # Short reason for GUI
+            return
+        # --- End Rate Limiting Pre-check ---
+
         try:
-            parsed_command = process_command_with_llm(
+            # The 'model' instance for token counting is available as config.model
+            llm_model_instance = model # from config import model
+
+            parsed_command, p_tokens, r_tokens = process_command_with_llm(
                 command=clean_input,
                 chat_session=self.chat_session,
                 available_skills_prompt_str=self.available_skills_prompt_str,
-                ai_name=self.ai_name 
+                ai_name=self.ai_name,
+                model=llm_model_instance
             )
+
+            # Record API usage attempt, regardless of whether parsed_command is valid
+            self._record_api_usage(p_tokens, r_tokens)
 
             if parsed_command:
                 skill_name = parsed_command.get("skill")
                 args = parsed_command.get("args", {})
-
                 if skill_name in SKILLS:
                     skill_function = SKILLS[skill_name]
                     logging.info(f"PraxisCore: Attempting to call skill: {skill_name} with args: {args}")
@@ -518,9 +629,17 @@ class PraxisCore:
                     self.skill_context.speak(text_for_speak_skill) 
                     self.kb.record_skill_invocation(skill_name="speak", success=True, args_used=args)
                 else:
+                    # LLM returned a JSON but with an unknown skill
+                    logging.warning(f"PraxisCore: LLM returned unknown skill '{skill_name}'. Args: {args}")
                     self._trigger_fallback_handler(clean_input)
             else:
-                self._trigger_fallback_handler(clean_input)
+                # process_command_with_llm returned None for parsed_command
+                # This could be due to API error, blocked prompt, or JSON extraction failure.
+                # _record_api_usage has already been called with potentially 0 response tokens.
+                if p_tokens > 0 and r_tokens == 0: # Likely an API error or block after prompt was processed
+                    self.skill_context.speak("I had trouble processing that request with my core systems. Please try rephrasing or try again later.")
+                else: # Other parsing or unexpected issue
+                    self._trigger_fallback_handler(clean_input)
         except Exception as e:
             logging.error(f"PraxisCore: Critical error in process_command_text: {e}", exc_info=True)
             speak("A critical error occurred while processing your command.")
