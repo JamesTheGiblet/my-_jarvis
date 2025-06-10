@@ -315,14 +315,22 @@ class PraxisCore:
             old_name = self.ai_name
             self.ai_name = new_name
             logging.info(f"PraxisCore: AI name updated from '{old_name}' to '{self.ai_name}'.")
-            # Speak confirmation through skill_context to use the new name
+            
             if self.skill_context: # Ensure skill_context is initialized
-                self.skill_context.speak(f"Understood. My designation is now {self.ai_name}.")
+                # If it's the first time setting a non-default name AND formal intro hasn't happened,
+                # _perform_formal_greeting will handle the main announcement of the new name.
+                # Otherwise (e.g., changing an already set name), we need to announce the change here.
+                if not (old_name == DEFAULT_AI_NAME and not self.has_been_formally_introduced):
+                    self.skill_context.speak(f"Understood. My designation is now {self.ai_name}.")
+
                 if old_name == DEFAULT_AI_NAME and not self.has_been_formally_introduced:
                     self._perform_formal_greeting() # Perform full greeting with the new name
             self._update_gui_status()
 
     def _update_gui_status(self, praxis_state_override: Optional[str] = None, confirmation_prompt: Optional[str] = None):
+        # Check if GUI root exists, is not None, and is a valid window object before updating status
+        if not hasattr(self, 'root') or not self.root or not self.root.winfo_exists():
+            return # Silently return if GUI is not ready or not available
         if self.gui_update_status_callback:
             state_to_report = praxis_state_override if praxis_state_override else "Idle"
             status = {
@@ -349,7 +357,7 @@ class PraxisCore:
         if existing_profile_items:
             self.skill_context.speak(f"It's good to see you again, {self.current_user_name}!")
         else:
-            self.skill_context.speak(f"A pleasure to meet you for the first time, {self.current_user_name}. I look forward to assisting you. My designation is {self.ai_name}.")
+            self.skill_context.speak(f"A pleasure to meet you for the first time, {self.current_user_name}. I look forward to assisting you.")
         
         # Construct version string using current AI name
         version_info_parts = PRAXIS_VERSION_INFO.split(" ", 1)
@@ -365,7 +373,7 @@ class PraxisCore:
             failed_modules_str = ", ".join(self.failed_skill_module_tests_ref)
             final_startup_message += f" Warning: Self-test(s) failed for: {failed_modules_str}."
         
-        self.skill_context.speak(f"{final_startup_message} This is {self.ai_name} reporting.")
+        self.skill_context.speak(f"{final_startup_message}.")
         self.has_been_formally_introduced = True
 
     def initialize_user_session(self, user_name: str) -> None:
@@ -391,32 +399,40 @@ class PraxisCore:
         self.failed_skill_module_tests_ref = load_skills(self.skill_context) 
         self.available_skills_prompt_str = generate_skills_description_for_llm(SKILLS, speak)
 
-        name_loaded_or_default_greeted = False
-        # Attempt to load AI's chosen name after skills are loaded
+        name_is_set_or_chosen = False
         if "get_self_name" in SKILLS:
             try:
                 retrieved_name = SKILLS["get_self_name"](self.skill_context)
                 if retrieved_name:
-                    self.ai_name = retrieved_name # Update directly, speak confirmation handled by update_ai_name if called
+                    # Name exists, update PraxisCore directly.
+                    # update_ai_name will handle the greeting if it's the first time.
+                    self.update_ai_name(retrieved_name)
                     logging.info(f"PraxisCore: Loaded AI name '{self.ai_name}' from knowledge base.")
-                    self._perform_formal_greeting() # Greet with the loaded name
-                    name_loaded_or_default_greeted = True
-                else: # No name stored yet
-                    logging.info("PraxisCore: No AI name found in knowledge base.")
-                    if "choose_and_set_name" in SKILLS:
-                         self.skill_context.speak(f"I don't seem to have a chosen name yet. You can ask me to choose one later, sir.")
-                    # Formal greeting will happen via update_ai_name if a name is chosen later.
+                    name_is_set_or_chosen = True
             except Exception as e:
                 logging.error(f"PraxisCore: Error trying to get AI name during init: {e}", exc_info=True)
-                self.skill_context.speak(f"There was an issue checking my designation. I will proceed as {self.ai_name} for now.")
-                self._perform_formal_greeting() # Greet with default name after error
-                name_loaded_or_default_greeted = True
-        
-        if not name_loaded_or_default_greeted and "get_self_name" not in SKILLS:
-            # If naming skill isn't present and no name was loaded, greet with default.
-            self.skill_context.speak(f"Naming system not fully available. I am {self.ai_name} for this session.")
-            self._perform_formal_greeting()
+                # Proceed, will likely use default name or try to choose one.
 
+        if not name_is_set_or_chosen: # If name wasn't loaded from KB
+            if "choose_and_set_name" in SKILLS:
+                # Do not automatically call choose_and_set_name as it's CLI interactive.
+                # Inform the user instead.
+                self.skill_context.speak(
+                    "I don't seem to have a chosen name yet. "
+                    "You can ask me to 'choose and set name' if you'd like, sir."
+                )
+                logging.info(
+                    "PraxisCore: No AI name in KB. Informed user they can invoke 'choose_and_set_name'."
+                )
+            else:
+                logging.info(
+                    "PraxisCore: No AI name in KB and 'choose_and_set_name' skill not available. Using default name."
+                )
+
+        # If after all attempts (loading or choosing) the formal introduction hasn't happened yet,
+        # (e.g. name remained default, or naming skills were absent/cancelled), perform it now.
+        if not self.has_been_formally_introduced:
+            self._perform_formal_greeting()
         logging.info(f"PraxisCore: User identified as '{self.current_user_name}'. AI name is '{self.ai_name}'.")
         if "initialize_calendar_data" in SKILLS:
             logging.info("PraxisCore: Attempting to initialize calendar data...")
