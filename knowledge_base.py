@@ -561,6 +561,66 @@ def record_interaction_feedback(interaction_id: int, feedback_type: str, comment
     except sqlite3.Error as e:
         logging.error(f"KnowledgeBase: Error recording feedback for interaction ID {interaction_id}: {e}", exc_info=True)
 
+def get_skills_with_negative_feedback(limit_per_skill: int = 3) -> list[dict]:
+    """
+    Retrieves skills that have received negative feedback, along with recent comments.
+    Args:
+        limit_per_skill (int): Max number of feedback comments to retrieve per skill.
+    Returns:
+        list[dict]: A list of dictionaries, each containing:
+                    'skill_name', 'negative_feedback_count', 'recent_comments'.
+                    Sorted by negative_feedback_count descending.
+    """
+    results = []
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            # First, get skills and their negative feedback counts
+            # Exclude non-skill choices like parse errors or fallback confirmations
+            cursor.execute("""
+                SELECT
+                    llm_skill_choice AS skill_name,
+                    COUNT(interaction_id) AS negative_feedback_count
+                FROM interaction_feedback
+                WHERE feedback_type = 'negative' 
+                  AND llm_skill_choice IS NOT NULL 
+                  AND llm_skill_choice NOT LIKE 'N/A%' 
+                  AND llm_skill_choice NOT LIKE '%fallback%'
+                  AND llm_skill_choice NOT LIKE 'confirmation_handler%'
+                GROUP BY llm_skill_choice
+                ORDER BY negative_feedback_count DESC
+            """)
+            skills_with_negative_counts = cursor.fetchall()
+
+            for skill_row in skills_with_negative_counts:
+                skill_name = skill_row['skill_name']
+                negative_feedback_count = skill_row['negative_feedback_count']
+                
+                # Then, get recent comments for this skill
+                cursor.execute("""
+                    SELECT feedback_comment, timestamp, user_input
+                    FROM interaction_feedback
+                    WHERE llm_skill_choice = ? AND feedback_type = 'negative' AND feedback_comment IS NOT NULL AND TRIM(feedback_comment) != ''
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                """, (skill_name, limit_per_skill))
+                
+                comments_data = cursor.fetchall()
+                recent_comments = [
+                    f"Comment on {row['timestamp']} (User input: '{row['user_input'][:50]}...'): \"{row['feedback_comment']}\""
+                    for row in comments_data
+                ]
+                
+                results.append({
+                    "skill_name": skill_name,
+                    "negative_feedback_count": negative_feedback_count,
+                    "recent_comments": recent_comments
+                })
+        logging.info(f"KnowledgeBase: Retrieved {len(results)} skills with negative feedback.")
+    except sqlite3.Error as e:
+        logging.error(f"KnowledgeBase: Error getting skills with negative feedback: {e}", exc_info=True)
+    return results
+
 # Initialize the DB when this module is loaded (e.g., at app startup if imported early)
 # Alternatively, call init_db() explicitly from main.py
 # init_db() # Let's call it from main.py for more explicit control

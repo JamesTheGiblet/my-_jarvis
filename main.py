@@ -30,6 +30,7 @@ except ImportError:
 from config import model
 from brain import process_command_with_llm, strip_wake_words
 from config import GEMINI_1_5_FLASH_RPM, GEMINI_1_5_FLASH_TPM, GEMINI_1_5_FLASH_RPD # Import rate limit constants for reference
+from skill_refinement_agent import SkillRefinementAgent # Import the agent
 # Setup basic logging
 logging.basicConfig(filename='codex.log', level=logging.INFO, format='%(asctime)s - %(message)s')
 
@@ -374,6 +375,7 @@ class PraxisCore:
         self.last_interaction_id_for_feedback: Optional[int] = None
         self.last_ai_response_summary_for_feedback: Optional[str] = None
         self.current_command_spoken_parts: List[str] = []
+        self.skill_refinement_agent_instance: Optional[SkillRefinementAgent] = None
 
         self.sentiment_analyzer = SentimentIntensityAnalyzer() if NLTK_VADER_AVAILABLE else None
 
@@ -562,6 +564,12 @@ class PraxisCore:
         self.failed_skill_module_tests_ref = load_skills(self.skill_context) 
         self.available_skills_prompt_str = generate_skills_description_for_llm(SKILLS, speak)
 
+        # Instantiate SkillRefinementAgent, passing the skills registry
+        try:
+            self.skill_refinement_agent_instance = SkillRefinementAgent(skills_registry=self.skills_registry_ref)
+            logging.info("PraxisCore: SkillRefinementAgent initialized.")
+        except Exception as e:
+            logging.error(f"PraxisCore: Failed to initialize SkillRefinementAgent: {e}", exc_info=True)
         name_is_set_or_chosen = False
         if "get_self_name" in SKILLS:
             try:
