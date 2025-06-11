@@ -1,0 +1,54 @@
+models:
+  - model_id: gemini-1.5-pro
+    provider: google
+    api_model_name: gemini-1.5-pro-latest # Official model name for API calls
+    rate_limit_rpm: 60 # Example RPM, adjust based on your Google Cloud quota and specific model limits
+    strengths:
+      - powerful
+      - large-context
+      - multimodal
+      - complex-reasoning
+
+  - model_id: claude-3.5-sonnet
+    provider: anthropic
+    api_model_name: claude-3.5-sonnet-20240620 # Anthropic's date-versioned model name
+    rate_limit_rpm: 100 # Example RPM, adjust based on your Anthropic plan and model limits
+    strengths:
+      - balanced
+      - fast
+      - vision-capable
+      - strong-coding
+      - cost-effective
+
+  - model_id: groq-llama3-8b-instruct
+    provider: groq
+    api_model_name: llama3-8b-8192 # Llama 3 8B Instruct with 8192 context on Groq
+    rate_limit_rpm: 3000 # Groq typically offers very high RPMs; check your specific limits
+    strengths:
+      - very-fast
+      - efficient
+      - chat
+      - good-reasoning
+
+  - model_id: ollama-llama3-8b-instruct
+    provider: ollama
+    api_model_name: llama3:8b # Standard Ollama model tag for Llama 3 8B (often instruct by default)
+    rate_limit_rpm: 1000 # Represents high availability, effectively limited by local hardware
+    strengths:
+      - local
+      - customizable
+      - offline-capable
+      - no-api-cost
+
+  - model_id: ollama-mistral-7b
+    provider: ollama
+    api_model_name: mistral # Or your specific mistral tag, e.g., mistral:7b-instruct
+    rate_limit_rpm: 1000 # Represents high availability, effectively limited by local hardware
+    strengths:
+      - local
+      - fast
+      - efficient
+      - chat
+      - good-reasoning
+      - offline-capable
+      - no-api-cost
