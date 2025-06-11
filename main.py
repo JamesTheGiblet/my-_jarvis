@@ -44,7 +44,7 @@ except Exception as e:
 
 # --- Constants ---
 INACTIVITY_THRESHOLD_SECONDS = 300 # 5 minutes, adjust as needed - Made global for GUI access
-PRAXIS_VERSION_INFO = "Praxis (Phase 5 GUI Integration)"
+PRAXIS_VERSION_INFO = "Praxis (Phase 5 GUI Integration complete)"
 DEFAULT_AI_NAME = "Praxis" # Default name for the AI
 
 # --- GUI Integration: Callback for speak ---

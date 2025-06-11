@@ -87,6 +87,10 @@ Analyze the user's latest request based on the conversation history.
 
         {available_skills_prompt_str}
 
+        - get_latest_news: Fetches the latest news headlines from a specified source.
+          Optional 'source' (string, default 'bbc'). Available sources are bbc, sky, reuters, parliament.
+          Optional 'count' (integer, default 3) for the number of headlines.
+
         If the request is purely conversational (e.g., a greeting, a simple question like "how are you?", or a statement like "that's interesting"), respond with skill 'speak'.
         When using the 'speak' skill, provide the conversational response in the 'text' argument.
 
