@@ -40,7 +40,7 @@ class ManualSentimentCEQBenchmark(CEQBenchmarkBase):
             self.prompts_data = json.load(f)
         self.logger.info(f"Loaded {len(self.prompts_data)} prompts from {data_path}")
 
-    def run(self, praxis_instance: Optional[PraxisCore] = None, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, praxis_instance: Optional[PraxisCore] = None, **kwargs) -> List[Dict[str, Any]]: # type: ignore
         if not praxis_instance or not praxis_instance.skill_context:
             self.logger.error("PraxisCore instance or skill_context not available for running benchmark.")
             return []
