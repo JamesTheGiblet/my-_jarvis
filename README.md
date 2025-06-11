@@ -10,7 +10,7 @@ While the ultimate goal is a system that monitors itself, learns from interactio
 
     🧬 The aspirational goal is for Praxis to reach a level of functional complexity where it can contribute to its own evolution, perhaps even naming itself.
 
-🎯 Project Genesis & Motivation
+🎯 Project Praxis's Mission & Motivation
 
 The inspiration for Praxis stems from a desire to create a J.A.R.V.I.S.-like AI—a truly interactive and intelligent companion. Early explorations into "build your own J.A.R.V.I.S. in 10 steps" tutorials proved unsatisfying, often resulting in superficial programs reliant on limited, API-centric approaches without foundational depth.
 
@@ -117,6 +117,21 @@ Praxis's current architecture is designed for clarity and extensibility:
 
 *   **Persistent Knowledge (`knowledge_base.py`):**
     *   Manages the SQLite database for storing operational data, performance metrics, user feedback, and user profiles.
+
+## Key Dependencies
+
+Praxis relies on several key external libraries. Some of the most important ones include:
+
+*   **Google Gemini API (`google-generativeai`)**: Powers the core language understanding, reasoning, and conversational capabilities. (Details in "LLM-Powered Orchestration").
+*   **feedparser**: Essential for the news fetching skill, allowing Praxis to parse RSS and Atom feeds to retrieve news headlines.
+    *   To install:
+        ```bash
+        pip install feedparser
+        ```
+*   **pyttsx3**: Used for Text-to-Speech (TTS) output, enabling Praxis to speak its responses.
+*   **SpeechRecognition**: Leveraged for Speech-to-Text (STT) input, allowing Praxis to understand voice commands.
+
+This list can be expanded as more core dependencies are integrated.
 
 🧪 Path to Evolution (Future Aspirations)
 
