@@ -48,7 +48,7 @@ def main():
     # --- Instantiate and Run Benchmarks ---
     # For now, only ManualSentimentCEQBenchmark
     # Future: Discover and run multiple CEQ benchmark classes
-    benchmarks_to_run: List[ManualSentimentCEQBenchmark] = []
+    benchmarks_to_run: List[ManualSentimentCEQBenchmark] = [] # type: ignore
     manual_ceq_benchmark = ManualSentimentCEQBenchmark()
     benchmarks_to_run.append(manual_ceq_benchmark)
 
