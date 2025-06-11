@@ -148,3 +148,61 @@ Praxis is actively progressing through a phased development plan. The current fo
 *   **Advanced Cognitive Development & Autonomy (Phases 5, 7, 9, 10):**
     *   Implementing more sophisticated memory and learning mechanisms, intrinsic motivation, creativity, open-ended goal setting, and higher-order cognitive functions.
     *   The ultimate vision involves Praxis achieving significant autonomy in its learning, adaptation, and even in contributing to new discoveries or designs.
+
+### Enhanced Self-Awareness & Metacognition (Future Aspirations)
+
+These skills would deepen Praxis's understanding of its own performance and learning process, accelerating its path to autonomy.
+
+*   **Cognitive Resource Manager Skill:**
+    *   **Concept:** A skill that monitors its own operational metrics. It would use `knowledge_base.py` to track API costs (e.g., token usage per call, cumulative costs), skill execution times, and potentially system memory usage if feasible.
+    *   **Why it's valuable:** If it detects that a certain skill or type of operation is becoming too expensive (API cost-wise) or too slow, it could proactively:
+        *   Log detailed warnings for developer review.
+        *   Suggest optimizations to the relevant skill's code (leveraging the `skill_refinement_agent`).
+        *   Temporarily adjust its strategy, perhaps by favoring less resource-intensive alternative skills if available.
+        *   In extreme cases, and with safeguards, it might even temporarily disable a problematic, non-critical skill.
+        This is a critical step for long-term, sustainable, and unmonitored operation, especially when relying on metered APIs.
+
+*   **Automated Benchmark Generation Skill:**
+    *   **Concept:** A true meta-skill. When a skill like `skill_refinement_agent` (or a future `autonomous_learning_agent`) successfully proposes or generates a new skill or a significant modification to an existing one, this "Automated Benchmark Generation Skill" would be tasked with analyzing the new/modified skill's code and docstrings. Based on this analysis, it would attempt to automatically write one or more basic unit tests for it and add them to the appropriate directory within an evaluation harness (e.g., `tests/skills/`).
+    *   **Why it's valuable:** This would significantly close the loop on autonomous learning and self-improvement. Praxis wouldn't just be able to learn or modify skills; it would be able to generate evidence that its new or modified capabilities function as intended, ensuring that its evolution is robust, reliable, and less prone to regressions. It promotes a "test-driven evolution" paradigm.
+
+### Deeper User Understanding & Personalization (Future Aspirations)
+
+These skills would move Praxis from being a helpful assistant to a truly personalized companion that understands the user on a deeper level.
+
+*   **Communication Style Adapter Skill:**
+    *   **Concept:** An evolution of the CEQ (Core Emotional Aptitude) capabilities. This skill would analyze the user's language over time—noting their formality, verbosity, use of slang, emojis, and overall tone from interaction logs (`interaction_feedback` table in `knowledge_base.py`).
+    *   **Why it's valuable:** Praxis could then dynamically tune its own responses (e.g., conciseness, descriptiveness, formality, even vocabulary choices by adjusting LLM prompts) to better match the user's preferred communication style. This would lead to more natural, comfortable, and effective interactions, making Praxis feel more like a tailored companion.
+
+*   **Implicit Goal Inference Skill:**
+    *   **Concept:** A skill that analyzes the history of user commands and interactions stored in the `knowledge_base.py` (specifically `skill_usage_metrics` and `interaction_feedback`) to identify patterns, recurring sequences of actions, or larger, unstated goals.
+    *   **Why it's valuable:** This allows Praxis to be more proactive and insightful. For example, if a user frequently performs a sequence of file operations within a specific project directory and then runs tests, Praxis could proactively ask, "I've noticed you often test files after modifying them in this project. Would you like me to create a new skill that automatically runs the tests for you whenever a file in this directory changes?" This moves beyond simple command execution to anticipating user needs and offering intelligent assistance.
+
+### Broader World Interaction & Knowledge Acquisition (Future Aspirations)
+
+These skills would allow Praxis to break free from pre-defined APIs and learn directly from the vast, unstructured information on the internet.
+
+*   **Web Scraper & Information Synthesizer Skill:**
+    *   **Concept:** A skill that can take a URL, scrape the text content of the page (respecting `robots.txt` and ethical considerations), and then use the Gemini API to summarize the key points, extract specific information, or find the answer to a user's question based on that content.
+    *   **Why it's valuable:** This would grant Praxis the ability to answer questions about current events, niche topics, or specific documentation pages that are not available through a structured API or its existing skills. It's a massive step towards general knowledge acquisition and a more versatile research assistant. It would likely require libraries like `requests` and `BeautifulSoup4` or `Scrapy`.
+
+*   **RSS Feed & News Monitoring Skill:**
+    *   **Concept:** An advanced version of the current news fetching (which uses `feedparser`). Users could task Praxis with monitoring specific RSS feeds or news sources for keywords, topics, or entities. When relevant new items are detected, Praxis could summarize them or alert the user.
+    *   **Why it's valuable:** This would significantly enhance its proactive engagement capabilities (e.g., `proactive_engagement_skill.py`). Instead of just starting a generic conversation, it could provide timely, personalized updates like, "I saw a new article on that machine learning library you're interested in. The key takeaway is a 10% performance improvement in the latest version. Would you like the link or a more detailed summary?" This makes Praxis a more active and relevant information curator.
+
+### Advanced Task & Development Assistance (Future Aspirations)
+
+These skills aim to elevate Praxis into a more capable assistant for complex tasks and development workflows.
+
+*   **Interactive Code Debugging Assistant:**
+    *   **Concept:** Make the power of the CIQ "Test & Repair" loop directly available to the user. A user could paste a block of code (or point to a file) and say, "This isn't working, can you help me debug it?" Praxis would then attempt to understand the code's purpose (perhaps by asking clarifying questions or analyzing docstrings/comments), write or infer potential unit tests, execute them (in a sandboxed environment), analyze any errors, and use the LLM to suggest specific fixes or explanations.
+    *   **Why it's valuable:** This would transform Praxis into a powerful pair-programming partner, capable of actively assisting with debugging, code understanding, and iterative refinement, leveraging its existing CIQ framework.
+
+*   **End-to-End Project Management Skill:**
+    *   **Concept:** A high-level skill that can manage a simple software project from initiation to basic setup. For example, a user could say, "Start a new Python project called 'my_utility_app'." Praxis could then:
+        *   Create a project directory (using `file_manager_skill.py`).
+        *   Initialize a Git repository locally.
+        *   Optionally, create the repository on GitHub (using `github_api_interaction_skill.py` if available and configured) and link the local repo.
+        *   Create template files (e.g., `README.md`, `.gitignore`, a basic `main.py`).
+        *   Potentially track initial tasks in a local Markdown file or a simple issue in the KnowledgeBase.
+    *   **Why it's valuable:** This would synthesize many of its existing capabilities into a cohesive, high-level workflow, demonstrating its ability to handle complex, multi-step tasks and automate common developer setup routines.
