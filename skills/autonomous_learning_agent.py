@@ -2,6 +2,7 @@
 import logging
 import os
 import random
+import re # Import the re module for string manipulation
 from typing import Any, Optional
 from datetime import datetime
 
@@ -21,6 +22,31 @@ def _ensure_proposed_new_skills_dir_exists() -> str:
             raise
     return abs_proposed_new_skills_dir
 
+def _generate_skill_name_from_description(description: str) -> str:
+    """Generates a Python-friendly skill name from a task description."""
+    # Remove common leading phrases
+    description = re.sub(r"^(a skill to|a skill that can|a skill for|create a skill to|develop a skill that can)\s+", "", description, flags=re.IGNORECASE).strip()
+    
+    # Take first few words (e.g., up to 5) to form the base name
+    words = description.split()[:5]
+    if not words:
+        return "generic_learned_skill" # Fallback if description was empty or only leading phrases
+    
+    # Sanitize: lowercase, replace non-alphanumeric with underscore
+    name_parts = [re.sub(r'\W+', '', word).lower() for word in words]
+    # Filter out empty strings that might result from sanitizing non-alphanumeric words
+    name_parts = [part for part in name_parts if part]
+    
+    if not name_parts: # If all words were non-alphanumeric
+        return "generic_learned_skill"
+
+    skill_name = "_".join(name_parts)
+    
+    # Ensure it's a valid Python identifier (starts with letter or underscore)
+    if not re.match(r"^[a-zA-Z_]", skill_name):
+        skill_name = "skill_" + skill_name # Prepend "skill_" if it doesn't start correctly
+    return skill_name
+
 def attempt_autonomous_skill_learning(context: Any, task_description: Optional[str] = None) -> None:
     """
     Attempts to autonomously learn/generate a new skill based on a task description
@@ -30,20 +56,25 @@ def attempt_autonomous_skill_learning(context: Any, task_description: Optional[s
     logging.info("AutonomousLearningAgent: Initiating new skill learning protocol...")
     context.speak("I will now attempt to conceptualize and draft a new skill. This is an experimental procedure, sir.")
 
-    skill_name_suggestion = "newly_learned_skill" # Default
+    # Determine the skill name suggestion and final task description
     if not task_description:
         possible_tasks = [
             ("a skill to greet the user differently based on the time of day (morning, afternoon, evening)", "greet_by_time_of_day"),
             ("a skill that tells a very short, one-line motivational quote", "get_motivational_quote"),
             ("a skill that can reverse a given string", "reverse_string_content"),
-            ("a skill to calculate the factorial of a number", "calculate_factorial")
+            ("a skill to calculate the factorial of a number", "calculate_factorial"),
+            ("Create a skill to set an alarm. The skill should take as input the time for the alarm (in HH:MM format), and optionally a description or label for the alarm.  It should then store the alarm information, and ideally, at the specified time, trigger a notification or other action (this latter part might require system integration beyond the scope of this immediate task).", "set_alarm")
         ]
         chosen_task = random.choice(possible_tasks)
         task_description = chosen_task[0]
-        skill_name_suggestion = chosen_task[1]
+        skill_name_suggestion = chosen_task[1] # Use the curated, specific name
+        logging.info(f"AutonomousLearningAgent: No task provided, selected predefined task: '{task_description}' with suggested name: '{skill_name_suggestion}'")
+    else:
+        # A specific task_description was provided by the caller
+        skill_name_suggestion = _generate_skill_name_from_description(task_description)
+        logging.info(f"AutonomousLearningAgent: Task description provided. Generated skill name suggestion: '{skill_name_suggestion}' for task: '{task_description}'")
 
     context.speak(f"I will try to conceptualize a skill for the following task: {task_description}")
-    logging.info(f"AutonomousLearningAgent: Attempting to learn skill for: {task_description}")
 
     prompt_for_llm = f"""
 You are an expert Python programmer assisting an AI named Praxis. Praxis needs a new skill.

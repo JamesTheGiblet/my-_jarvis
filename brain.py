@@ -6,7 +6,7 @@ from typing import Optional, Dict, Any, TYPE_CHECKING, Tuple
 
 import google.generativeai as genai # For model type hint
 from google.generativeai.types import generation_types # For specific exceptions
-
+from model_layer import APIError, ModelAdapter # Import ModelAdapter for type hinting
 if TYPE_CHECKING: # To avoid circular import for type hinting
     from google.generativeai.generative_models import ChatSession # type: ignore
     from google.generativeai import GenerativeModel # For type hint
@@ -42,10 +42,10 @@ def extract_json(text: str) -> Optional[Dict[str, Any]]:
 
 def process_command_with_llm(
     command: str, 
-    chat_session: 'ChatSession', 
+    llm_adapter: 'ModelAdapter', # Changed from chat_session to llm_adapter
     available_skills_prompt_str: str,
     ai_name: str = "Praxis",
-    model: Optional['GenerativeModel'] = None, # Added model parameter for token counting
+    # model parameter is removed as adapter handles its own model
     user_sentiment: Optional[str] = None # New parameter for CEQ
 ) -> Tuple[Optional[Dict[str, Any]], int, int]: # Return type changed to include token counts
     """Uses the Gemini LLM to understand the user's command and returns a skill dictionary."""
@@ -81,7 +81,9 @@ You are designed to be adaptable, context-aware, and to learn from interactions.
 
     prompt = f"""{final_persona_prompt}
 Analyze the user's latest request based on the conversation history.
-        Your goal is to understand the user's intent and select the best tool (skill) to fulfill it, or to respond conversationally with the 'speak' skill if appropriate.
+        Your primary goal is to understand the user's intent and select the BEST tool (skill) from the available skills list to fulfill it.
+        If a skill exists that can directly address the user's request (e.g., a math skill for a calculation, a weather skill for weather), you MUST prioritize using that skill.
+        Only use the 'speak' skill for purely conversational interactions (greetings, simple acknowledgments, or when no other skill is appropriate and you need to ask for clarification or inform the user). Do NOT use the 'speak' skill to directly answer questions that an available skill can handle.
         If a task requires multiple steps, plan these steps. After a tool provides information,
         you can use that information from the conversation history to inform a subsequent tool call.
 
@@ -91,7 +93,8 @@ Analyze the user's latest request based on the conversation history.
           Optional 'source' (string, default 'bbc'). Available sources are bbc, sky, reuters, parliament.
           Optional 'count' (integer, default 3) for the number of headlines.
 
-        If the request is purely conversational (e.g., a greeting, a simple question like "how are you?", or a statement like "that's interesting"), respond with skill 'speak'.
+        If the request is purely conversational (e.g., a greeting, a simple question like "how are you?", a statement like "that's interesting", or if no skill can handle the request and you need to inform the user or ask for clarification), respond with skill 'speak'.
+        For example, if the user asks "what is 2 plus 2" or "what is 300 x 24" and you have a 'calculate_add' or 'calculate_multiply' skill, you MUST use the appropriate calculation skill, not 'speak'.
         When using the 'speak' skill, provide the conversational response in the 'text' argument.
 
         If a user asks for specific information (like weather) by location name, but the most relevant skill requires precise inputs (like latitude and longitude) which are not directly provided:
@@ -184,46 +187,41 @@ Example Formats:
     try:
         prompt_tokens = 0
         response_tokens = 0
+        
+        # TODO: Implement token counting for the selected adapter.
+        # This might involve modifying the adapter's generate() method to return token counts,
+        # or using a separate count_tokens method if the adapter's underlying client supports it.
+        # For now, prompt_tokens and response_tokens will be 0 unless implemented in adapter.
+        # Example (conceptual - requires adapter changes):
+        # if hasattr(llm_adapter, 'count_tokens'):
+        #     prompt_tokens = llm_adapter.count_tokens(prompt)
 
-        if model:
-            try:
-                prompt_tokens = model.count_tokens(prompt).total_tokens
-            except Exception as e:
-                logging.error(f"Praxis LLM Brain Error counting prompt tokens: {e}", exc_info=True)
-                # Proceed, prompt_tokens will be 0. API call might still work or fail.
+        # The llm_adapter.generate method is expected to handle API calls,
+        # including potential retries via tenacity if it's decorated.
+        # It should also raise appropriate APIError, APIRateLimitError, etc.
+        # Adapters now return (text, p_tokens, r_tokens)
+        response_text, prompt_tokens, response_tokens = llm_adapter.generate(prompt)
 
-        response = chat_session.send_message(prompt)
+        if not response_text: # Adapter failed to generate or returned empty
+            logging.error(f"Praxis LLM Brain: Adapter {llm_adapter.model_id} returned no response.")
+            return None, 0, 0
 
-        if response.prompt_feedback and response.prompt_feedback.block_reason:
-            logging.error(f"Praxis LLM Brain: Prompt blocked by API. Reason: {response.prompt_feedback.block_reason}, Category: {response.prompt_feedback.safety_ratings}")
-            return None, prompt_tokens, 0 # No response tokens
+        # if hasattr(llm_adapter, 'count_tokens') and response_text: # Conceptual
+        #     response_tokens = llm_adapter.count_tokens(response_text)
 
-        if model and response.text:
-            try:
-                response_tokens = model.count_tokens(response.text).total_tokens
-            except Exception as e:
-                logging.error(f"Praxis LLM Brain Error counting response tokens: {e}", exc_info=True)
-                # response_tokens remains 0
-
-        parsed_json = extract_json(response.text)
+        parsed_json = extract_json(response_text)
         return parsed_json, prompt_tokens, response_tokens
 
-    except generation_types.BlockedPromptException as bpe:
-        logging.error(f"Praxis LLM Brain Error: Prompt was blocked by the API. {bpe}", exc_info=True)
-        return None, prompt_tokens, 0 # We have prompt tokens (if counted), no response tokens
-    except generation_types.StopCandidateException as sce:
-         logging.error(f"Praxis LLM Brain Error: Generation stopped unexpectedly. {sce}", exc_info=True)
-         partial_text = ""
-         if sce.candidates and sce.candidates[0].content and sce.candidates[0].content.parts:
-             partial_text = "".join(part.text for part in sce.candidates[0].content.parts if hasattr(part, 'text'))
-         if model and partial_text:
-             try:
-                 response_tokens = model.count_tokens(partial_text).total_tokens
-             except Exception: # nosec
-                 pass # response_tokens remains 0
-         return None, prompt_tokens, response_tokens
+    # The specific Google exceptions are now handled within the GoogleAdapter.
+    # Here, we'd catch the custom exceptions from model_layer.py if they propagate up.
+    except APIError as e: # Catching generic APIError from the adapter
+        logging.error(f"Praxis LLM Brain Error (via adapter {llm_adapter.model_id}): {e}", exc_info=True)
+        # Token counts might be partially available depending on when the error occurred.
+        # For simplicity, returning 0s here.
+        return None, 0, 0
     except Exception as e:
-        logging.error(f"Praxis LLM Brain Error during send_message or extract_json: {e}", exc_info=True)
+        # Catch any other unexpected error during the adapter call or JSON extraction
+        logging.error(f"Praxis LLM Brain Error using adapter {llm_adapter.model_id} or extracting JSON: {e}", exc_info=True)
         # If prompt_tokens was calculated, it's preserved. response_tokens defaults to 0 here.
         return None, prompt_tokens if 'prompt_tokens' in locals() else 0, 0
 

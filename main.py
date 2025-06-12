@@ -28,7 +28,16 @@ except ImportError:
     NLTK_VADER_AVAILABLE = False
     print("Praxis Warning: NLTK or VADER lexicon not found. Sentiment analysis will be basic. Install with: pip install nltk")
 from config import model
-from brain import process_command_with_llm, strip_wake_words
+from brain import process_command_with_llm, strip_wake_words # process_command_with_llm will be modified
+
+# --- Import from model_layer ---
+try:
+    from model_layer import ModelRegistry, ModelRouter, TASK_PROFILES, APIError, APIRateLimitError, APIConnectionError, ModelNotReadyError
+    MODEL_LAYER_AVAILABLE = True
+except ImportError:
+    MODEL_LAYER_AVAILABLE = False
+    print("Praxis Warning: model_layer.py not found. Advanced model orchestration will be disabled.")
+
 from config import GEMINI_1_5_FLASH_RPM, GEMINI_1_5_FLASH_TPM, GEMINI_1_5_FLASH_RPD # Import rate limit constants for reference
 from skill_refinement_agent import SkillRefinementAgent # Import the agent
 # Setup basic logging
@@ -174,12 +183,20 @@ def load_skills(skill_context: SkillContext, skills_directory: str = "skills") -
         logging.warning(f"Skills directory '{skills_directory}' not found. No custom skills loaded.")
         return failed_module_tests
 
+    # Define the path to the directory to be excluded
+    proposed_skills_dir_to_exclude = os.path.join(skills_directory, "proposed_new_skills")
+
     # Walk through the skills directory and its subdirectories
     for root, _, files in os.walk(skills_directory):
         # Create the package path relative to the skills directory
         # e.g., skills/abilities -> skills.abilities
         relative_root = os.path.relpath(root, skills_directory).replace(os.sep, '.')
         package_prefix = f"{skills_directory}.{relative_root}" if relative_root != '.' else skills_directory
+
+        # Check if the current root is the directory to exclude
+        if os.path.abspath(root) == os.path.abspath(proposed_skills_dir_to_exclude):
+            logging.info(f"Skipping skill loading from excluded directory: {root}")
+            continue # Skip this directory
 
         for filename in files:
             if filename.endswith(".py") and not filename.startswith("_"):
@@ -378,6 +395,9 @@ class PraxisCore:
         self.skill_refinement_agent_instance: Optional[SkillRefinementAgent] = None
 
         self.sentiment_analyzer = SentimentIntensityAnalyzer() if NLTK_VADER_AVAILABLE else None
+        
+        self.model_registry: Optional[ModelRegistry] = None
+        self.model_router: Optional[ModelRouter] = None
 
         # Start the TTS worker thread if it's not already running and engine is available
         global tts_worker_thread_instance
@@ -386,6 +406,18 @@ class PraxisCore:
             tts_worker_thread_instance.start()
         elif not TTS_ENGINE_AVAILABLE:
             logging.warning("PraxisCore: TTS engine not available, TTS worker thread not started.")
+
+        # Initialize the new model layer components
+        if MODEL_LAYER_AVAILABLE:
+            try:
+                models_yaml_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models.yaml')
+                self.model_registry = ModelRegistry(config_path=models_yaml_path)
+                self.model_router = ModelRouter(self.model_registry)
+                logging.info("PraxisCore: ModelRegistry and ModelRouter initialized successfully.")
+            except Exception as e:
+                logging.error(f"PraxisCore: Failed to initialize ModelRegistry/Router: {e}", exc_info=True)
+                self.model_registry = None # Ensure they are None on failure
+                self.model_router = None
     # --- Rate Limiting Methods ---
     def _clean_old_metrics(self):
         """Removes outdated entries from RPM and TPM deques."""
@@ -662,14 +694,40 @@ class PraxisCore:
             return
         
         try:
-            llm_model_instance = model 
+            # --- MODIFICATION POINT: Use ModelRouter to select a model for core processing ---
+            # Define a task name for core processing, e.g., "praxis_core_reasoning"
+            # This task profile should be added to TASK_PROFILES in model_layer.py
+            core_processing_task_name = "praxis_core_reasoning"
+            selected_adapter = None
+            if self.model_router:
+                selected_adapter = self.model_router.select_model(core_processing_task_name)
+
+            if not selected_adapter:
+                logging.warning("PraxisCore: Could not select a model via ModelRouter. Falling back to default model if available, or erroring.")
+                # Fallback to the original model from config.py if model_router fails, or handle error
+                # For this integration, we'll assume if selected_adapter is None, we can't proceed with LLM.
+                if not model: # Check if the original model from config.py is even available
+                    self.skill_context.speak("My core reasoning model is currently unavailable. Please try again later.")
+                    self._update_gui_status(praxis_state_override="Error: Core LLM unavailable", enable_feedback_buttons=(self.last_interaction_id_for_feedback is not None))
+                    return
+                # If you want to use the old model as a fallback:
+                # llm_adapter_for_brain = model # This would need an adapter-like interface or brain changes
+                # For now, let's assume failure if router doesn't pick one.
+                self.skill_context.speak("My advanced model selection failed. I cannot process this command right now.")
+                self._update_gui_status(praxis_state_override="Error: Model selection failed", enable_feedback_buttons=(self.last_interaction_id_for_feedback is not None))
+                return
 
             parsed_command, p_tokens, r_tokens = process_command_with_llm(
                 command=clean_input,
-                chat_session=self.chat_session,
+                # chat_session is no longer directly passed if brain uses adapter.generate()
+                # History needs to be managed and included in the prompt for adapter.generate()
+                # For simplicity, this example assumes process_command_with_llm will handle history in prompt.
+                # OR, selected_adapter would need to handle chat sessions.
+                # For now, we pass the adapter to brain.py
+                llm_adapter=selected_adapter, # Pass the selected adapter
                 available_skills_prompt_str=self.available_skills_prompt_str,
                 ai_name=self.ai_name,
-                model=llm_model_instance,
+                # model (for token counting) is now implicitly handled by the adapter if it returns tokens
                 user_sentiment=user_sentiment 
             )
 

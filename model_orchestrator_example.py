@@ -44,8 +44,8 @@ def execute_task(router: ModelRouter, task_name: str, prompt: str) -> str:
     print(f"Selected Model: {selected_adapter.model_id} (Provider: {selected_adapter.provider})")
 
     try:
-        response = selected_adapter.generate(prompt)
-        print(f"Response from {selected_adapter.model_id}: {response[:200]}{'...' if len(response) > 200 else ''}")
+        response, p_tokens, c_tokens = selected_adapter.generate(prompt)
+        print(f"Response from {selected_adapter.model_id} (P_tokens: {p_tokens}, C_tokens: {c_tokens}): {response[:200]}{'...' if len(response) > 200 else ''}")
         return response
     except ModelNotReadyError as e:
         error_msg = f"Model '{selected_adapter.model_id}' is not ready: {e}"

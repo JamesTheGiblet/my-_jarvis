@@ -157,6 +157,17 @@ def review_and_test_proposed_skill(context: Any, skill_filename: str) -> None:
             # Log the full error for developer review
             logging.error(f"SkillReviewAgent: Full error details for {skill_filename} review:\n{error_details}")
 
+            # --- Trigger SkillRefinementAgent ---
+            context.speak(f"I will ask the Skill Refinement Agent to attempt a fix for '{skill_filename}'.")
+            if hasattr(context._praxis_core_ref, 'skill_refinement_agent_instance') and \
+               context._praxis_core_ref.skill_refinement_agent_instance:
+                refinement_agent = context._praxis_core_ref.skill_refinement_agent_instance
+                # Call a new method in SkillRefinementAgent specifically for proposed skills
+                refinement_agent.attempt_refinement_of_proposed_skill(context, full_skill_path, error_details)
+            else:
+                context.speak("The Skill Refinement Agent is not available, so I cannot attempt an automated fix at this time.")
+            logging.error(f"SkillReviewAgent: Full error details for {skill_filename} review:\n{error_details}")
+
         if proposed_skill_test_output: # This was the output before/during failure of the *proposed skill*
             context.speak("Output captured from proposed skill before or during its failure:")
             for line in proposed_skill_test_output: # Iterate over the clean, copied list

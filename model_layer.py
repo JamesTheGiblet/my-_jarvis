@@ -4,7 +4,7 @@ from typing import Dict, List, Any, Optional
 import os
 import time
 from collections import deque
-
+from typing import Tuple # Added for type hinting
 # Attempt to import provider-specific libraries
 try: import google.generativeai as genai
 except ImportError: genai = None
@@ -97,7 +97,7 @@ class ModelAdapter(abc.ABC):
             self.rate_limit_tracker = None
 
     @abc.abstractmethod
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str) -> Tuple[str, int, int]:
         """
         Generates a response from the model given a prompt.
 
@@ -105,7 +105,10 @@ class ModelAdapter(abc.ABC):
             prompt: The input prompt string.
 
         Returns:
-            The model's generated response string.
+            A tuple containing:
+                - The model's generated response string.
+                - The number of prompt tokens used.
+                - The number of completion tokens generated.
         """
         pass
 
@@ -137,11 +140,30 @@ class GoogleAdapter(ModelAdapter): # Renamed from GoogleModelAdapter for consist
         self.client = genai.GenerativeModel(self.api_model_name) if self.api_key else None
 
     @COMMON_RETRY_STRATEGY
-    def _perform_api_call(self, prompt: str) -> str:
+    def _perform_api_call(self, prompt: str) -> Tuple[str, int, int]:
+        prompt_tokens = 0
+        completion_tokens = 0
         try:
             print(f"INFO: GoogleAdapter ({self.api_model_name}) attempting API call for prompt: '{prompt[:50]}...'")
+            if self.client:
+                try:
+                    prompt_tokens = self.client.count_tokens(prompt).total_tokens
+                except Exception as e_count:
+                    print(f"WARNING: GoogleAdapter ({self.api_model_name}) could not count prompt tokens: {e_count}")
+
             response = self.client.generate_content(prompt)
-            return response.text
+            response_text = response.text
+
+            if self.client and hasattr(response, 'usage_metadata') and response.usage_metadata:
+                 # Newer versions might provide this directly
+                prompt_tokens = response.usage_metadata.prompt_token_count
+                completion_tokens = response.usage_metadata.candidates_token_count
+            elif self.client: # Fallback to counting completion if not in usage_metadata
+                try:
+                    completion_tokens = self.client.count_tokens(response_text).total_tokens
+                except Exception as e_count:
+                    print(f"WARNING: GoogleAdapter ({self.api_model_name}) could not count completion tokens: {e_count}")
+            return response_text, prompt_tokens, completion_tokens
         except genai.types.generation_types.BlockedPromptException as e:
             print(f"ERROR: GoogleAdapter ({self.api_model_name}) prompt blocked: {e}")
             raise APIError(f"Prompt blocked by Google content policy for {self.api_model_name}", underlying_exception=e) from e
@@ -165,7 +187,7 @@ class GoogleAdapter(ModelAdapter): # Renamed from GoogleModelAdapter for consist
             print(f"ERROR: GoogleAdapter ({self.api_model_name}) unexpected error during API call: {e}")
             raise APIError(f"Unexpected error in GoogleAdapter for {self.api_model_name}", underlying_exception=e) from e
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str) -> Tuple[str, int, int]:
         if not self.client:
             raise APIError(f"GoogleAdapter for {self.model_id} not initialized (missing API key or library).")
 
@@ -178,10 +200,10 @@ class GoogleAdapter(ModelAdapter): # Renamed from GoogleModelAdapter for consist
                 time.sleep(wait_for)
                 current_time = time.time()
         
-        response_text = self._perform_api_call(prompt)
+        response_text, p_tokens, c_tokens = self._perform_api_call(prompt)
         if self.rate_limit_tracker:
             self.rate_limit_tracker.add_request_timestamp(time.time())
-        return response_text
+        return response_text, p_tokens, c_tokens
 
 class AnthropicAdapter(ModelAdapter): # Renamed
     def __init__(self, model_id: str, provider: str, api_model_name: str, rate_limit_rpm: int, strengths: List[str]):
@@ -196,8 +218,12 @@ class AnthropicAdapter(ModelAdapter): # Renamed
             self.client = anthropic.Anthropic(api_key=self.api_key)
 
     @COMMON_RETRY_STRATEGY
-    def _perform_api_call(self, prompt: str) -> str:
+    def _perform_api_call(self, prompt: str) -> Tuple[str, int, int]:
+        prompt_tokens = 0
+        completion_tokens = 0
         try:
+            # Anthropic's SDK doesn't have a separate prompt token counter before the call easily accessible for messages.
+            # The usage is returned in the response.
             print(f"INFO: AnthropicAdapter ({self.api_model_name}) attempting API call for prompt: '{prompt[:50]}...'")
             response = self.client.messages.create(
                 model=self.api_model_name,
@@ -206,7 +232,11 @@ class AnthropicAdapter(ModelAdapter): # Renamed
                     {"role": "user", "content": prompt}
                 ]
             )
-            return response.content[0].text
+            response_text = response.content[0].text
+            if response.usage:
+                prompt_tokens = response.usage.input_tokens
+                completion_tokens = response.usage.output_tokens
+            return response_text, prompt_tokens, completion_tokens
         except anthropic.RateLimitError as e:
             print(f"WARNING: AnthropicAdapter ({self.api_model_name}) rate limit hit (will retry): {e}")
             raise APIRateLimitError(f"Anthropic API rate limit for {self.api_model_name}", underlying_exception=e) from e
@@ -223,7 +253,7 @@ class AnthropicAdapter(ModelAdapter): # Renamed
             print(f"ERROR: AnthropicAdapter ({self.api_model_name}) unexpected error during API call: {e}")
             raise APIError(f"Unexpected error in AnthropicAdapter for {self.api_model_name}", underlying_exception=e) from e
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str) -> Tuple[str, int, int]:
         if not self.client:
             raise APIError(f"AnthropicAdapter for {self.model_id} not initialized (missing API key or library).")
 
@@ -236,10 +266,10 @@ class AnthropicAdapter(ModelAdapter): # Renamed
                 time.sleep(wait_for)
                 current_time = time.time()
 
-        response_text = self._perform_api_call(prompt)
+        response_text, p_tokens, c_tokens = self._perform_api_call(prompt)
         if self.rate_limit_tracker:
             self.rate_limit_tracker.add_request_timestamp(time.time())
-        return response_text
+        return response_text, p_tokens, c_tokens
 
 class GroqAdapter(ModelAdapter): # Renamed
     def __init__(self, model_id: str, provider: str, api_model_name: str, rate_limit_rpm: int, strengths: List[str]):
@@ -254,8 +284,11 @@ class GroqAdapter(ModelAdapter): # Renamed
             self.client = groq.Groq(api_key=self.api_key)
 
     @COMMON_RETRY_STRATEGY
-    def _perform_api_call(self, prompt: str) -> str:
+    def _perform_api_call(self, prompt: str) -> Tuple[str, int, int]:
+        prompt_tokens = 0
+        completion_tokens = 0
         try:
+            # Groq's SDK also returns usage in the response.
             print(f"INFO: GroqAdapter ({self.api_model_name}) attempting API call for prompt: '{prompt[:50]}...'")
             chat_completion = self.client.chat.completions.create(
                 messages=[
@@ -266,7 +299,11 @@ class GroqAdapter(ModelAdapter): # Renamed
                 ],
                 model=self.api_model_name,
             )
-            return chat_completion.choices[0].message.content
+            response_text = chat_completion.choices[0].message.content
+            if chat_completion.usage:
+                prompt_tokens = chat_completion.usage.prompt_tokens
+                completion_tokens = chat_completion.usage.completion_tokens
+            return response_text, prompt_tokens, completion_tokens
         except groq.RateLimitError as e:
             print(f"WARNING: GroqAdapter ({self.api_model_name}) rate limit hit (will retry): {e}")
             raise APIRateLimitError(f"Groq API rate limit for {self.api_model_name}", underlying_exception=e) from e
@@ -283,7 +320,7 @@ class GroqAdapter(ModelAdapter): # Renamed
             print(f"ERROR: GroqAdapter ({self.api_model_name}) unexpected error during API call: {e}")
             raise APIError(f"Unexpected error in GroqAdapter for {self.api_model_name}", underlying_exception=e) from e
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str) -> Tuple[str, int, int]:
         if not self.client:
             raise APIError(f"GroqAdapter for {self.model_id} not initialized (missing API key or library).")
 
@@ -296,10 +333,10 @@ class GroqAdapter(ModelAdapter): # Renamed
                 time.sleep(wait_for)
                 current_time = time.time()
 
-        response_text = self._perform_api_call(prompt)
+        response_text, p_tokens, c_tokens = self._perform_api_call(prompt)
         if self.rate_limit_tracker:
             self.rate_limit_tracker.add_request_timestamp(time.time())
-        return response_text
+        return response_text, p_tokens, c_tokens
 
 class OllamaAdapter(ModelAdapter): # Renamed
     def __init__(self, model_id: str, provider: str, api_model_name: str, rate_limit_rpm: int, strengths: List[str]):
@@ -319,8 +356,11 @@ class OllamaAdapter(ModelAdapter): # Renamed
             self.client = None
 
     @COMMON_RETRY_STRATEGY
-    def _perform_api_call(self, prompt: str) -> str:
+    def _perform_api_call(self, prompt: str) -> Tuple[str, int, int]:
+        prompt_tokens = 0
+        completion_tokens = 0
         try:
+            # Ollama's python client response for `chat` includes token counts
             print(f"INFO: OllamaAdapter ({self.api_model_name}) attempting API call for prompt: '{prompt[:50]}...'")
             response = ollama.chat(
                 model=self.api_model_name,
@@ -331,7 +371,10 @@ class OllamaAdapter(ModelAdapter): # Renamed
                     },
                 ]
             )
-            return response['message']['content']
+            response_text = response['message']['content']
+            prompt_tokens = response.get('prompt_eval_count', 0) # prompt_eval_count for input tokens
+            completion_tokens = response.get('eval_count', 0)    # eval_count for output tokens
+            return response_text, prompt_tokens, completion_tokens
         except ollama.ResponseError as e:
             err_str = str(e).lower()
             if e.status_code == 429:
@@ -352,7 +395,7 @@ class OllamaAdapter(ModelAdapter): # Renamed
             print(f"ERROR: OllamaAdapter ({self.api_model_name}) unexpected error during API call: {e}")
             raise APIError(f"Unexpected error in OllamaAdapter for {self.api_model_name}", underlying_exception=e) from e
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str) -> Tuple[str, int, int]:
         if not self.client:
             raise APIError(f"OllamaAdapter for {self.model_id} not initialized or Ollama server not reachable.")
 
@@ -366,16 +409,17 @@ class OllamaAdapter(ModelAdapter): # Renamed
                 time.sleep(wait_for)
                 current_time = time.time()
 
-        response_text = self._perform_api_call(prompt)
+        response_text, p_tokens, c_tokens = self._perform_api_call(prompt)
         if self.rate_limit_tracker:
             self.rate_limit_tracker.add_request_timestamp(time.time())
-        return response_text
+        return response_text, p_tokens, c_tokens
 
 class UnknownProviderAdapter(ModelAdapter):
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str) -> Tuple[str, int, int]:
         error_message = f"UnknownProviderAdapter ({self.api_model_name}) for provider '{self.provider}': Generation not supported. Adapter not implemented."
         print(f"ERROR: {error_message}")
-        raise NotImplementedError(error_message)
+        raise NotImplementedError(error_message) # Keep raising, but return tuple for signature match if not caught
+        # return f"Error: {error_message}", 0, 0 # Or return error string with 0 tokens
 
 
 # --- Part 2: Model Registry ---
@@ -534,6 +578,10 @@ TASK_PROFILES: Dict[str, Dict[str, Any]] = {
     "local_fast_task": {
         "preferred_strengths": ["local", "fast", "offline-capable"],
         "description": "For tasks that need to run locally and quickly, possibly offline."
+    },
+    "praxis_core_reasoning": {
+        "preferred_strengths": ["powerful", "complex-reasoning", "large-context", "strong-coding"], # Coding for skill understanding
+        "description": "For core AI command processing, skill selection, and complex reasoning."
     }
 }
 
@@ -551,44 +599,78 @@ class ModelRouter:
         Returns:
             A ModelAdapter instance for the best model, or None if no suitable model is found.
         """
-        task_profile = TASK_PROFILES.get(task_name)
-        if not task_profile:
-            print(f"WARNING: Task profile for '{task_name}' not found.")
-            return None
-
-        preferred_strengths = set(task_profile.get("preferred_strengths", []))
-        if not preferred_strengths:
-            print(f"WARNING: No preferred strengths defined for task '{task_name}'.")
-            return None
-
         best_model: Optional[ModelAdapter] = None
         max_score = -1
 
-        for model_id in self.model_registry.list_available_model_ids():
-            adapter = self.model_registry.get_adapter(model_id)
-            if not adapter: continue
+        if task_name == "praxis_core_reasoning":
+            print(f"INFO: ModelRouter: Prioritizing for critical task '{task_name}'.")
+            # Attempt to select Gemini Flash first
+            gemini_flash_adapter = self.model_registry.get_adapter("gemini-1.5-flash")
+            if gemini_flash_adapter:
+                is_gemini_limited = gemini_flash_adapter.rate_limit_tracker and \
+                                    gemini_flash_adapter.rate_limit_tracker.is_limit_exceeded(time.time())
+                print(f"DEBUG_ROUTER: Checking gemini-1.5-flash for '{task_name}'. Client-side rate-limited: {is_gemini_limited}")
+                if not is_gemini_limited:
+                    best_model = gemini_flash_adapter
+                    max_score = 1 # Indicate direct preferred choice
+                    print(f"INFO: ModelRouter directly selected '{best_model.model_id}' for critical task '{task_name}'.")
+            
+            if not best_model:
+                # Gemini Flash is not available or rate-limited, try Ollama models
+                print(f"INFO: ModelRouter: Gemini Flash not available or rate-limited for '{task_name}'. Attempting Ollama fallback.")
+                # You can define an explicit order or just iterate
+                ollama_model_ids_to_try = [m_id for m_id in self.model_registry.list_available_model_ids() if self.model_registry.get_adapter(m_id) and self.model_registry.get_adapter(m_id).provider == "ollama"]
+                
+                for ollama_id in ollama_model_ids_to_try:
+                    ollama_adapter = self.model_registry.get_adapter(ollama_id)
+                    if ollama_adapter: # Should always be true if in the list
+                        is_ollama_limited = ollama_adapter.rate_limit_tracker and \
+                                            ollama_adapter.rate_limit_tracker.is_limit_exceeded(time.time())
+                        print(f"DEBUG_ROUTER: Checking Ollama fallback {ollama_id} for '{task_name}'. Client-side rate-limited: {is_ollama_limited}")
+                        if not is_ollama_limited:
+                            best_model = ollama_adapter
+                            max_score = 0 # Indicate it's a fallback
+                            print(f"INFO: ModelRouter: Fallback selection for '{task_name}': '{best_model.model_id}'.")
+                            break # Found an available Ollama model
+                if not best_model:
+                    print(f"WARNING: ModelRouter: No Ollama models available as fallback for '{task_name}'.")
+        else:
+            # Existing strength-based logic for other (non-critical) tasks
+            task_profile = TASK_PROFILES.get(task_name)
+            if not task_profile:
+                print(f"WARNING: Task profile for '{task_name}' not found.")
+                return None
+            preferred_strengths = set(task_profile.get("preferred_strengths", []))
+            if not preferred_strengths:
+                print(f"WARNING: No preferred strengths defined for task '{task_name}'.")
+                return None
 
-            # Check client-side rate limit
-            if adapter.rate_limit_tracker and adapter.rate_limit_tracker.is_limit_exceeded(time.time()):
-                print(f"INFO: ModelRouter skipping '{adapter.model_id}' for task '{task_name}' due to client-side rate limit.")
-                continue
+            print(f"DEBUG_ROUTER: Selecting model for non-critical task '{task_name}'. Preferred strengths: {list(preferred_strengths)}")
+            for model_id in self.model_registry.list_available_model_ids(): # Will only iterate over Gemini Flash & Ollama
+                adapter = self.model_registry.get_adapter(model_id)
+                if not adapter: continue
 
-            model_strengths = set(adapter.strengths)
-            score = len(preferred_strengths.intersection(model_strengths))
+                is_limited = adapter.rate_limit_tracker and adapter.rate_limit_tracker.is_limit_exceeded(time.time())
+                print(f"DEBUG_ROUTER: Non-critical task checking {adapter.model_id}. Client-side rate-limited: {is_limited}")
+                if is_limited:
+                    print(f"INFO: ModelRouter skipping '{adapter.model_id}' for task '{task_name}' due to client-side rate limit.")
+                    continue
 
-            if score > 0 and score > max_score: # Must have at least one matching strength
-                max_score = score
-                best_model = adapter
-            elif score > 0 and score == max_score:
-                # Basic tie-breaking: prefer models with higher RPM if scores are equal
-                # (assuming higher RPM might mean more capacity or less likely to hit server-side limits)
-                if best_model and adapter.rate_limit_rpm > best_model.rate_limit_rpm:
+                model_strengths = set(adapter.strengths)
+                score = len(preferred_strengths.intersection(model_strengths))
+
+                if score > 0 and score > max_score:
+                    max_score = score
                     best_model = adapter
+                elif score > 0 and score == max_score:
+                    if best_model and adapter.rate_limit_rpm > best_model.rate_limit_rpm: # Tie-breaking
+                        best_model = adapter
 
         if best_model:
-            print(f"INFO: ModelRouter selected '{best_model.model_id}' (Score: {max_score}) for task '{task_name}'.")
+            score_display = max_score if max_score >= 0 else "N/A (Direct/Fallback)"
+            print(f"INFO: ModelRouter selected '{best_model.model_id}' (Score: {score_display}) for task '{task_name}'.")
         else:
-            print(f"INFO: ModelRouter could not find a suitable, non-rate-limited model for task '{task_name}'.")
+            print(f"WARNING: ModelRouter could not find any suitable, non-rate-limited model for task '{task_name}' even after fallback attempt.")
         
         return best_model
 
@@ -647,8 +729,9 @@ if __name__ == "__main__":
                     try:
                         test_prompt = f"Hello {adapter.model_id}, tell me a very short fun fact about programming."
                         print(f"  Attempting to generate with prompt: '{test_prompt[:60]}...'")
-                        response = adapter.generate(test_prompt)
-                        print(f"  Response: {response}")
+                        response_text, p_tokens, c_tokens = adapter.generate(test_prompt)
+                        print(f"  Response: {response_text}")
+                        print(f"  Tokens: Prompt={p_tokens}, Completion={c_tokens}")
                     except NotImplementedError as e: # For UnknownProviderAdapter
                         print(f"  Caught expected error for unhandled provider: {e}")
                     except ModelNotReadyError as e:
@@ -690,8 +773,9 @@ if __name__ == "__main__":
                         # Perform a quick generation to see it in action
                         prompt = f"This is a test for '{task}' using {selected_adapter.model_id}. Briefly explain your primary function."
                         print(f"  Attempting generation with {selected_adapter.model_id}...")
-                        response = selected_adapter.generate(prompt)
-                        print(f"  Response from {selected_adapter.model_id}: {response[:100]}...") # Print first 100 chars
+                        response_text, p_tokens, c_tokens = selected_adapter.generate(prompt)
+                        print(f"  Response from {selected_adapter.model_id}: {response_text[:100]}...") # Print first 100 chars
+                        print(f"  Tokens used by {selected_adapter.model_id}: Prompt={p_tokens}, Completion={c_tokens}")
                     except Exception as e:
                         print(f"  Error during generation with {selected_adapter.model_id} for task '{task}': {e}")
                 else:
